@@ -9,6 +9,17 @@ import mitmproxy.proxy.protocol
 
 import pymongo
 
+
+class Configuration( object ):
+    MONGO_HOST = '192.168.1.31'
+    MONGO_PORT = 27017
+    MONGO_USER = None
+    MONGO_PASS = None
+
+    WEBSITE = 'http://DESKTOP-QCP8I15.localdomain:3000'
+
+
+
 class Moment( object ):
     __slots__ = ( 'request', 'response', 'timing' )
     def __init__( self, request = None, response = None ):
@@ -72,6 +83,10 @@ class HTTPData( object ):
         if source.headers:
             self.load_multidict( source.headers, self.headers )
 
+            #get_content_length
+            for t in source.headers.get_all( 'content-length' ):
+                self.content_length = t
+
             #get_content_type
             for t in source.headers.get_all( 'content-type' ):
                 self.content_type = t
@@ -85,9 +100,9 @@ class HTTPData( object ):
 
         for key in source:
             target.append({
-                'key':   key,
-                'value': source[ key ],
-                'index': len( target )
+                'k':   key,
+                'v': source[ key ],
+                'i': len( target )
             })
 
         return target if no_target else None
@@ -99,7 +114,7 @@ class HTTPData( object ):
 
 class Request( HTTPData ):
     __slots__ = ( 'created', 'http_version', 'method', 'scheme', 'host', 'port', 'path',
-        'query_data', 'query_string', 'content_type', 'headers', 'body' )
+        'query_data', 'query_string', 'content_length', 'content_type', 'headers', 'body' )
 
     def __init__( self, request = None ):
         self.created = datetime.datetime.now()
@@ -113,11 +128,14 @@ class Request( HTTPData ):
         self.query_data   = []
         self.query_string = None
         self.headers      = []
+        self.content_length = None
         self.content_type = None
         
         self.body = None
 
         if request:
+            print( request )
+
             for k in [ 'host', 'host_header', 'pretty_host' ]:
                 print({ k: getattr( request, k ) })
 
@@ -141,18 +159,22 @@ class Request( HTTPData ):
             self.load_headers( request )
 
             if request.query:
+                split_at = self.path.find( '?' )
+                self.query_string = self.path[split_at+1:]
+                self.path = self.path[:split_at]
+
                 self.load_multidict( request.query, self.query_data )
-                
-                qs = []
-                for kvi in self.query_data:
-                    qs.append(( kvi['key'], kvi['value'] ))
-                self.query_string = urlencode( qs )
+
+                #qs = []
+                #for kvi in self.query_data:
+                #    qs.append(( kvi['k'], kvi['v'] ))
+                #self.query_string = urlencode( qs )
 
             self.load_body( request )
 
 
 class Response( HTTPData ):
-    __slots__ = ( 'created', 'http_version', 'status_code', 'headers', 'content_type', 'body' )
+    __slots__ = ( 'created', 'http_version', 'status_code', 'headers', 'content_length', 'content_type', 'body' )
 
     def __init__( self, response = None ):
         self.created = datetime.datetime.now()
@@ -160,6 +182,7 @@ class Response( HTTPData ):
         self.status_code = None
 
         self.headers      = []
+        self.content_length = None
         self.content_type = None
 
         self.body = None
@@ -190,7 +213,7 @@ class Scintillator:
 
 
     def connect( self ):
-        self.mongo = pymongo.MongoClient( '192.168.1.31', 27017 )
+        self.mongo = pymongo.MongoClient( Configuration.MONGO_HOST, Configuration.MONGO_PORT )
 
 
     ################ Core Events ################
@@ -288,18 +311,19 @@ class Scintillator:
         #TODO: if request size > 1k
         #TODO: if response size > 1k
     '''
-    '''
+
     #7
     def requestheaders(self, flow: mitmproxy.http.HTTPFlow):
         """
             HTTP request headers were successfully read. At this point, the body
             is empty.
         """
+        #TODO:  check user, rate limit?
+
         print( '7: requestheaders' )
-        print( flow.request )
-        print({ 'path': flow.request.path })
-        print({ 'headers': flow.request.headers })
-    '''
+        #print({ 'path': flow.request.path })
+        #print( type(flow.request.path_components) )
+        #print( flow.request.path_components )
 
     #
     def request(self, flow: mitmproxy.http.HTTPFlow):
@@ -312,7 +336,7 @@ class Scintillator:
         moment = Moment( flow.request )
         as_dict = moment.to_dict()
         print( as_dict )
-        res = self.mongo.scintillator.requests.insert_one( as_dict )
+        res = self.mongo.scintillator.moments.insert_one( as_dict )
 
         flow.id = res.inserted_id
         print({ 'flow.id': flow.id })
@@ -330,17 +354,16 @@ class Scintillator:
     '''
 
     ################ HTTP Events ################
-    '''
     #10
     def responseheaders(self, flow: mitmproxy.http.HTTPFlow):
         """
             HTTP response headers were successfully read. At this point, the body
             is empty.
         """
+
         print( '10: responseheaders' )
-        print({ 'headers': flow.response.headers })
-        print( flow.request.id )
-    '''
+        #TODO: check content length, and cancel response
+
 
     #11
     def response(self, flow: mitmproxy.http.HTTPFlow):
@@ -352,10 +375,15 @@ class Scintillator:
         as_dict = response.to_dict()
         print( as_dict )
 
-        res = self.mongo.scintillator.requests.update_one(
+        res = self.mongo.scintillator.moments.update_one(
           { "_id": flow.id },
           { "$set": { "response": as_dict } }
         )
+        
+        #TODO: notify
+        
+        flow.response.headers["S-Request-Id"] = str( flow.id )
+        flow.response.headers["Link"] = '{0}/moment/{1}'.format( Configuration.WEBSITE, str( flow.id ) )
 
 
     ################ Final Core Event ################
