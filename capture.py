@@ -6,6 +6,7 @@ import mitmproxy.addonmanager
 import mitmproxy.connections
 import mitmproxy.log
 import mitmproxy.proxy.protocol
+from mitmproxy.net import http
 
 import pymongo
 
@@ -21,11 +22,14 @@ class Configuration( object ):
 
 
 class Moment( object ):
-    __slots__ = ( 'request', 'response', 'timing' )
+    __slots__ = ( 'request', 'response', 'timing', 'org_id', 'user_id', 'visibility' )
     def __init__( self, request = None, response = None ):
         self.request  = Request( request )
         self.response = Response( response ) if response else None
         self.timing = {}
+        self.org_id = None
+        self.user_id = None
+        self.visibility = None
 
     def to_dict( self ):
         data = {
@@ -84,12 +88,12 @@ class HTTPData( object ):
             self.load_multidict( source.headers, self.headers )
 
             #get_content_length
-            for t in source.headers.get_all( 'content-length' ):
-                self.content_length = t
+            for value in source.headers.get_all( 'content-length' ):
+                self.content_length = value
 
             #get_content_type
-            for t in source.headers.get_all( 'content-type' ):
-                self.content_type = t
+            for value in source.headers.get_all( 'content-type' ):
+                self.content_type = value
 
 
     @staticmethod
@@ -100,7 +104,7 @@ class HTTPData( object ):
 
         for key in source:
             target.append({
-                'k':   key,
+                'k': key,
                 'v': source[ key ],
                 'i': len( target )
             })
@@ -134,10 +138,9 @@ class Request( HTTPData ):
         self.body = None
 
         if request:
-            print( request )
-
-            for k in [ 'host', 'host_header', 'pretty_host' ]:
-                print({ k: getattr( request, k ) })
+            #print( request )
+            #for k in [ 'host', 'host_header', 'pretty_host' ]:
+            #    print({ k: getattr( request, k ) })
 
             '''
             for k in [ 'text', 'content', 'raw_content', 'urlencoded_form', 'multipart_form' ]:
@@ -188,15 +191,14 @@ class Response( HTTPData ):
         self.body = None
 
         if response:
-            for k in [ 'text', 'content', 'raw_content' ]:
-                val = getattr( response, k )
-                b = not not val
-                print({
-                  k: val,
-                  'bool': b
-                })
+            #for k in [ 'text', 'content', 'raw_content' ]:
+            #    val = getattr( response, k )
+            #    b = not not val
+            #    print({
+            #      k: val,
+            #      'bool': b
+            #    })
 
-        
             self.http_version = response.http_version
             self.status_code = response.status_code
 
@@ -312,18 +314,141 @@ class Scintillator:
         #TODO: if response size > 1k
     '''
 
+    def authorize_request( self, flow: mitmproxy.http.HTTPFlow ):
+        # init
+        flow.cancelled = False
+        flow.org       = None
+        flow.user      = None
+
+        #TODO: check content-type
+        #TODO: check content-length
+
+
+        #for key in flow.request.headers['x-client-key']:
+
+
+        #TODO: check for base64
+        client_key = None
+        for value in flow.request.headers.get_all( 'x-client-key' ):
+            if client_key:
+                print( "Ignoring X-Client-Key: {0}".format( value ) )
+                #TODO: strip this
+            
+            else:
+                print( "Found X-Client-Key: {0}".format( value ) )
+                client_key = value
+                #TODO: strip this
+
+        
+        for value in flow.request.headers.get_all( 'x-api-key' ):
+            if client_key:
+                print( "Ignoring X-Api-Key: {0}".format( value ) )
+                #TODO: strip this
+            
+            else:
+                print( "Found X-Api-Key: {0}".format( value ) )
+                client_key = value
+                #TODO: strip this
+
+
+        # anonymous is ratelimited by IP
+        if not client_key:
+            #TODO: check rate limit
+            flow.cancelled = False
+            flow.user = None
+            return
+
+
+        print( 'Auth user' )
+        # user with bad client_key is blocked
+        flow.user = self.mongo.scintillator.users.find_one({ "client_key": client_key })
+        if flow.user:
+            if flow.user['enabled']:
+                flow.org = self.mongo.scintillator.orgs.find_one({ "_id": flow.user['org_id'] })
+
+            else:
+                print( 'User disabled' )
+                self.cancel_proxy( flow, "Proxy: Authentication Failed", 407 )
+                return
+        else:
+            print( 'User not found, checking org...' )
+            flow.org = self.mongo.scintillator.orgs.find_one({ "client_key": client_key })
+
+
+        print( 'Auth org' )
+        if flow.org:
+            if flow.org['enabled']:
+                pass
+
+            else:
+                print( 'Org disabled' )
+                self.cancel_proxy( flow, "Proxy: Authentication Failed", 407 )
+                return
+
+        else:
+            print( 'Org not found' )
+            self.cancel_proxy( flow, "Proxy: Authentication Failed", 407 )
+            return
+
+
+        #TODO: check rate limit
+        query = {
+            "org_client_key": flow.org['client_key'],
+            "proxy_evergreen": { "$gt": 0 }
+        }
+        update = {
+            '$inc': {
+                "proxy_evergreen": -1
+            }
+        }
+        res = self.mongo.scintillator.rate_limits.update_one( query, update )
+        if res.modified_count:
+            return
+
+
+        query = {
+            "org_client_key": flow.org['client_key'],
+            "proxy_adhoc": { "$gt": 0 }
+        }
+        update = {
+            '$inc': {
+                "proxy_adhoc": -1
+            }
+        }
+        res = self.mongo.scintillator.rate_limits.update_one( query, update )
+        if res.modified_count:
+            return
+
+
+        self.cancel_proxy( flow, "Proxy: Too Many Requests", 429 )
+
+
+    def cancel_proxy( self, flow, content, status_code, headers=None ):
+        if not headers:
+            headers = {
+                "Content-Type": "text/plain"
+            }
+
+        flow.cancelled = True
+        flow.response = mitmproxy.http.HTTPResponse.make(
+            status_code,  # (optional) status code
+            content,      # (optional) content
+            headers       # (optional) headers
+        )
+
+
     #7
     def requestheaders(self, flow: mitmproxy.http.HTTPFlow):
         """
             HTTP request headers were successfully read. At this point, the body
             is empty.
         """
-        #TODO:  check user, rate limit?
-
         print( '7: requestheaders' )
-        #print({ 'path': flow.request.path })
-        #print( type(flow.request.path_components) )
-        #print( flow.request.path_components )
+        flow.cancelled = False
+        flow.org = None
+        flow.user = None
+        self.authorize_request( flow )
+
 
     #
     def request(self, flow: mitmproxy.http.HTTPFlow):
@@ -331,15 +456,23 @@ class Scintillator:
             The full HTTP request has been read.
         """
         print( '8: request' )
+        if not flow.cancelled:
+            # https://mitmproxy.readthedocs.io/en/v2.0.2/scripting/api.html
+            moment = Moment( flow.request )
+            
+            if flow.user:
+                moment.org_id = flow.user['org_id']
+                moment.user_id = flow.user['_id']
+                moment.visibility = 'private'
+            else:
+                moment.visibility = 'public'
 
-        # https://mitmproxy.readthedocs.io/en/v2.0.2/scripting/api.html
-        moment = Moment( flow.request )
-        as_dict = moment.to_dict()
-        print( as_dict )
-        res = self.mongo.scintillator.moments.insert_one( as_dict )
+            as_dict = moment.to_dict()
+            #print( as_dict )
+            res = self.mongo.scintillator.moments.insert_one( as_dict )
 
-        flow.id = res.inserted_id
-        print({ 'flow.id': flow.id })
+            flow.id = res.inserted_id
+            print({ 'flow.id': flow.id })
 
 
     ################ Intermediate Core Event ################
@@ -354,6 +487,18 @@ class Scintillator:
     '''
 
     ################ HTTP Events ################
+    def authorize_response( self, flow: mitmproxy.http.HTTPFlow ):
+        #TODO: check content-type
+        #TODO: check content-length
+        #flow.cancelled = True
+        #flow.response = mitmproxy.http.HTTPResponse.make(
+        #    407,  # (optional) status code
+        #    "Proxy Authentication Failed",  # (optional) content
+        #    {"Content-Type": "text/plain"}  # (optional) headers
+        #)
+        pass
+
+
     #10
     def responseheaders(self, flow: mitmproxy.http.HTTPFlow):
         """
@@ -362,7 +507,7 @@ class Scintillator:
         """
 
         print( '10: responseheaders' )
-        #TODO: check content length, and cancel response
+        self.authorize_response( flow )
 
 
     #11
@@ -371,19 +516,18 @@ class Scintillator:
             The full HTTP response has been read.
         """
         print( '11: response' )
-        response = Response( flow.response )
-        as_dict = response.to_dict()
-        print( as_dict )
+        if not flow.cancelled:
+            response = Response( flow.response )
+            as_dict = response.to_dict()
+            #print( as_dict )
 
-        res = self.mongo.scintillator.moments.update_one(
-          { "_id": flow.id },
-          { "$set": { "response": as_dict } }
-        )
-        
-        #TODO: notify
-        
-        flow.response.headers["S-Request-Id"] = str( flow.id )
-        flow.response.headers["Link"] = '{0}/moment/{1}'.format( Configuration.WEBSITE, str( flow.id ) )
+            res = self.mongo.scintillator.moments.update_one(
+              { "_id": flow.id },
+              { "$set": { "response": as_dict } }
+            )
+
+            flow.response.headers["S-Moment-Id"] = str( flow.id )
+            flow.response.headers["Link"] = '{0}/moment/{1}'.format( Configuration.WEBSITE, str( flow.id ) )
 
 
     ################ Final Core Event ################
