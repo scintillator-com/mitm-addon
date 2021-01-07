@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """Generic event hooks."""
-import datetime, json, logging, logging.handlers, os, sys, typing
+import datetime, json, logging, logging.handlers, os, sys, typing, urllib.parse
 from urllib.parse import urlencode
 
 import mitmproxy.addonmanager
@@ -18,12 +18,37 @@ import pymongo
 
 class Configuration( object ):
     MONGO_DB   = 'scintillator'
-    MONGO_HOST = '192.168.1.31'
+    MONGO_HOST = 'jaya-demo-cluster.kvmcv.mongodb.net'
     MONGO_PORT = 27017
-    MONGO_USER = None
-    MONGO_PASS = None
+    MONGO_USER = 'savant'
+    MONGO_PASS = 'Q5z!TB2$92MaSzgZ'
 
     WEBSITE = 'http://DESKTOP-QCP8I15.localdomain:3000'
+
+    @classmethod
+    def getMongoDbUri( cls ):
+        if cls.MONGO_PORT == 27017:
+            port = ''
+        else:
+            port = ':{port}'.format( port=cls.MONGO_PORT )
+
+        if cls.MONGO_USER and cls.MONGO_PASS:
+            formatted = "mongodb+srv://{username}:{password}@{host}{port}/{dbname}?retryWrites=true&w=majority".format(
+                username=urllib.parse.quote_plus( cls.MONGO_USER ),
+                password=urllib.parse.quote_plus( cls.MONGO_PASS ),
+                host=cls.MONGO_HOST,
+                port=port,
+                dbname=cls.MONGO_DB
+            )
+        else:
+            formatted = "mongodb+srv://{host}{port}/{dbname}?retryWrites=true&w=majority".format(
+                host=cls.MONGO_HOST,
+                port=port,
+                dbname=cls.MONGO_DB
+            )
+
+        print( formatted )
+        return formatted
 
 
 class Moment( object ):
@@ -34,11 +59,18 @@ class Moment( object ):
             self.org_id     = flow.user['org_id']
             self.user_id    = flow.user['_id']
             self.visibility = 'private'
+        elif flow.org:
+            self.org_id     = flow.org['_id']
+            self.user_id    = None
+            self.visibility = 'private'
         else:
+            self.org_id     = None
+            self.user_id    = None
             self.visibility = 'public'
 
+
         self.response = None #Response( response ) if flow.response else None
-        self.timing = {}
+        self.timing = flow.timing
         self.org_id = None
         self.user_id = None
         self.visibility = None
@@ -88,12 +120,19 @@ class HTTPData( object ):
             self.body = source.raw_content
 
         if self.body:
-            try:
-                #TODO: body_type
-                self.body = json.loads( self.body )
-            except Exception as ex:
-                #TODO: body_type
-                logging.warn( ex )
+            if not self.content_length:
+                self.content_length = len( self.body )
+
+
+            if self.content_length <= 25000:
+                try:
+                    #TODO: body_type
+                    self.body = json.loads( self.body )
+                except Exception as ex:
+                    #TODO: body_type
+                    logging.warn( ex )
+            else:
+                self.body = '(ignored)'
 
 
     def load_headers( self, source ):
@@ -102,7 +141,10 @@ class HTTPData( object ):
 
             #get_content_length
             for value in source.headers.get_all( 'content-length' ):
-                self.content_length = value
+                try:
+                    self.content_length = int( value )
+                except ValueError:
+                    pass
 
             #get_content_type
             for value in source.headers.get_all( 'content-type' ):
@@ -266,6 +308,7 @@ class ScintillatorBase:
             flow.ignored = True
             return
 
+        '''
         client_key = cls.get_client_key( flow )
         if not client_key:
             # anonymous is ratelimited by IP
@@ -289,6 +332,7 @@ class ScintillatorBase:
             return
         else:
             cls.cancel_proxy( flow, "Proxy: Too Many Requests", 429 )
+        '''
 
 
     @classmethod
@@ -413,7 +457,8 @@ class ScintillatorBase:
 
     @classmethod
     def connect( cls ):
-        cls.MONGO = pymongo.MongoClient( Configuration.MONGO_HOST, Configuration.MONGO_PORT )
+        cls.MONGO = pymongo.MongoClient( Configuration.getMongoDbUri() )
+        #cls.MONGO = pymongo.MongoClient( Configuration.MONGO_HOST, Configuration.MONGO_PORT )
 
 
     @staticmethod
@@ -653,7 +698,14 @@ class ScintillatorAddon( ScintillatorBase ):
             is empty.
         """
         logging.debug( '7: requestheaders' )
-        
+        flow.timing = {
+            'request_received': datetime.datetime.now()
+        }
+
+        #TODO: X-Forwarded
+        #TODO: X-Forwarded-For
+        #flow.client_conn.address
+
         try:
             self.authorize_request( flow )
         except ex:
@@ -671,6 +723,7 @@ class ScintillatorAddon( ScintillatorBase ):
         
         try:
             self.record_request( flow )
+            flow.timing['request_parsed'] = datetime.datetime.now()
         except ex:
             logging.exception( ex )
             flow.ignored = True
@@ -697,6 +750,7 @@ class ScintillatorAddon( ScintillatorBase ):
         """
 
         logging.debug( '10: responseheaders' )
+        flow.timing['response_received'] = datetime.datetime.now()
         
         if not flow.ignored:
             try:
@@ -717,6 +771,7 @@ class ScintillatorAddon( ScintillatorBase ):
         if not flow.ignored:
             try:
                 self.record_response( flow )
+                flow.timing['response_parsed'] = datetime.datetime.now()
             except ex:
                 logging.exception( ex )
                 flow.ignored = True
