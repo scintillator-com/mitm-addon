@@ -7,6 +7,7 @@ I added pymongo to the build using `requirements.txt`.  I see that requests is i
 
 ```sh
 . venv/bin/activate
-mitmdump -s scintillator/capture.py
+mitmdump -s scintillator/scintillator.py
 ```
 
+ref: https://github.com/mitmproxy/mitmproxy/blob/master/CONTRIBUTING.md

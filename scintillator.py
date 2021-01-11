@@ -17,63 +17,92 @@ import pymongo
 
 
 class Configuration( object ):
+    USE_SRV    = False
     MONGO_DB   = 'scintillator'
-    MONGO_HOST = 'jaya-demo-cluster.kvmcv.mongodb.net'
+    MONGO_HOST = '192.168.1.31'
     MONGO_PORT = 27017
-    MONGO_USER = 'savant'
-    MONGO_PASS = 'Q5z!TB2$92MaSzgZ'
+    MONGO_USER = None
+    MONGO_PASS = None
+    MONGO_OPTIONS = {
+        #'retryWrites': 'true',
+        #'w': 'majority'
+    }
 
     WEBSITE = 'http://DESKTOP-QCP8I15.localdomain:3000'
 
     @classmethod
     def getMongoDbUri( cls ):
-        if cls.MONGO_PORT == 27017:
-            port = ''
-        else:
+        options = ''
+        if cls.MONGO_OPTIONS:
+            options = '?'+ urlencode( cls.MONGO_OPTIONS )
+
+        port = ''
+        if cls.MONGO_PORT != 27017:
             port = ':{port}'.format( port=cls.MONGO_PORT )
 
+        scheme = 'mongodb'
+        if cls.USE_SRV:
+            scheme = 'mongodb+srv'
+
+        user_pass = ''
         if cls.MONGO_USER and cls.MONGO_PASS:
-            formatted = "mongodb+srv://{username}:{password}@{host}{port}/{dbname}?retryWrites=true&w=majority".format(
+            user_pass = '{username}:{password}@'.format(
                 username=urllib.parse.quote_plus( cls.MONGO_USER ),
-                password=urllib.parse.quote_plus( cls.MONGO_PASS ),
-                host=cls.MONGO_HOST,
-                port=port,
-                dbname=cls.MONGO_DB
-            )
-        else:
-            formatted = "mongodb+srv://{host}{port}/{dbname}?retryWrites=true&w=majority".format(
-                host=cls.MONGO_HOST,
-                port=port,
-                dbname=cls.MONGO_DB
+                password=urllib.parse.quote_plus( cls.MONGO_PASS )
             )
 
-        print( formatted )
+        formatted = "{scheme}://{user_pass}{host}{port}/{dbname}{options}".format(
+            scheme=scheme,
+            user_pass=user_pass,
+            host=cls.MONGO_HOST,
+            port=port,
+            dbname=cls.MONGO_DB,
+            options=options
+        )
+
+        logging.info( formatted )
         return formatted
 
 
 class Moment( object ):
-    __slots__ = ( 'request', 'response', 'timing', 'org_id', 'user_id', 'visibility' )
+    __slots__ = (
+        '_id',
+        'request',
+        'response',
+        'timing',
+        'org_id',
+        'user_id',
+        'visibility'
+    )
+
     def __init__( self, flow ):
+        self._id        = None
+        self.request    = None
+        self.org_id     = None
+        self.user_id    = None
+        self.visibility = None
+
+        self.response   = None
+        self.timing     = {}
+
         self.request  = Request( flow.request )
         if flow.user:
             self.org_id     = flow.user['org_id']
             self.user_id    = flow.user['_id']
             self.visibility = 'private'
+
         elif flow.org:
             self.org_id     = flow.org['_id']
             self.user_id    = None
             self.visibility = 'private'
+
         else:
             self.org_id     = None
             self.user_id    = None
             self.visibility = 'public'
 
-
-        self.response = None #Response( response ) if flow.response else None
+        #self.response = Response( response ) if flow.response else None
         self.timing = flow.timing
-        self.org_id = None
-        self.user_id = None
-        self.visibility = None
 
 
     def to_dict( self ):
@@ -99,13 +128,16 @@ class Moment( object ):
 class HTTPData( object ):
     def load_body( self, source ):
         if hasattr( source, 'multipart_form' ) and source.multipart_form:
-            #TODO: body_type
+            logging.warn( 'MULTIPART_FORM' )
+            #TODO: content_type
             self.body = self.load_multidict( source.multipart_form )
             return
 
 
         if hasattr( source, 'urlencoded_form' ) and source.urlencoded_form:
-            #TODO: body_type
+            logging.warn( 'URLENCODED' )
+
+            #TODO: content_type
             self.body = self.load_multidict( source.urlencoded_form )
             return
 
@@ -126,13 +158,22 @@ class HTTPData( object ):
 
             if self.content_length <= 25000:
                 try:
-                    #TODO: body_type
                     self.body = json.loads( self.body )
+                    self.is_complete = True
+                    self.is_summary  = False
+                    if self.content_type != 'application/json':
+                        logging.warn( "Old content-type: '{0}'".format( self.content_type ) )
+                        self.content_type = 'application/json'
+
                 except Exception as ex:
-                    #TODO: body_type
                     logging.warn( ex )
             else:
-                self.body = '(ignored)'
+                self.body = None
+                self.is_complete = False
+                self.is_summary  = True
+        else:
+            self.is_complete = True
+            self.is_summary  = False
 
 
     def load_headers( self, source ):
@@ -148,7 +189,7 @@ class HTTPData( object ):
 
             #get_content_type
             for value in source.headers.get_all( 'content-type' ):
-                self.content_type = value
+                self.content_type = value.split( ';', 1 )[0]
 
 
     @staticmethod
@@ -172,8 +213,25 @@ class HTTPData( object ):
 
 
 class Request( HTTPData ):
-    __slots__ = ( 'created', 'http_version', 'method', 'scheme', 'host', 'port', 'path',
-        'query_data', 'query_string', 'content_length', 'content_type', 'headers', 'body' )
+    __slots__ = (
+        'created',
+        'http_version',
+        'method',
+        'scheme',
+        'host',
+        'port',
+        'path',
+
+        'query_data',
+        'query_string',
+        'headers',
+        'content_length',
+        'content_type',
+
+        'body',
+        'is_complete',
+        'is_summary'
+    )
 
     def __init__( self, request = None ):
         self.created = datetime.datetime.now()
@@ -191,6 +249,8 @@ class Request( HTTPData ):
         self.content_type = None
         
         self.body = None
+        self.is_complete = False
+        self.is_summary = False
 
         if request:
             #logging.debug( request )
@@ -217,22 +277,26 @@ class Request( HTTPData ):
             self.load_headers( request )
 
             if request.query:
-                split_at = self.path.find( '?' )
-                self.query_string = self.path[split_at+1:]
-                self.path = self.path[:split_at]
-
+                self.path, self.query_string = self.path.split( '?', 1 )
                 self.load_multidict( request.query, self.query_data )
-
-                #qs = []
-                #for kvi in self.query_data:
-                #    qs.append(( kvi['k'], kvi['v'] ))
-                #self.query_string = urlencode( qs )
 
             self.load_body( request )
 
 
 class Response( HTTPData ):
-    __slots__ = ( 'created', 'http_version', 'status_code', 'headers', 'content_length', 'content_type', 'body' )
+    __slots__ = (
+        'created',
+        'http_version',
+        'status_code',
+
+        'headers',
+        'content_length',
+        'content_type',
+
+        'body',
+        'is_complete',
+        'is_summary'
+    )
 
     def __init__( self, response = None ):
         self.created = datetime.datetime.now()
@@ -244,6 +308,8 @@ class Response( HTTPData ):
         self.content_type = None
 
         self.body = None
+        self.is_complete = False
+        self.is_summary = False
 
         if response:
             #for k in [ 'text', 'content', 'raw_content' ]:
@@ -296,19 +362,11 @@ class ScintillatorBase:
 
     @classmethod
     def authorize_request( cls, flow: mitmproxy.http.HTTPFlow ):
-        # init
-        flow.cancelled = False
-        flow.ignored   = False
-        flow.org       = None
-        flow.user      = None
-
-
         if cls.ignore_request( flow ):
             logging.info( "Ignoring request path '{0}'".format( path ) )
             flow.ignored = True
             return
 
-        '''
         client_key = cls.get_client_key( flow )
         if not client_key:
             # anonymous is ratelimited by IP
@@ -332,7 +390,6 @@ class ScintillatorBase:
             return
         else:
             cls.cancel_proxy( flow, "Proxy: Too Many Requests", 429 )
-        '''
 
 
     @classmethod
@@ -363,7 +420,7 @@ class ScintillatorBase:
             flow.org = cls.get_org({ "client_key": client_key })
 
         if flow.org:
-            if flow.org['enabled']:
+            if flow.org['is_enabled']:
                 logging.debug( 'Org enabled' )
                 return True
 
@@ -381,7 +438,7 @@ class ScintillatorBase:
         logging.debug( 'Auth user' )
         flow.user = cls.get_user({ "client_key": client_key })
         if flow.user:
-            if flow.user['enabled']:
+            if flow.user['is_enabled']:
                 logging.debug( 'User enabled' )
                 flow.org = cls.get_org({ "_id": flow.user['org_id'] })
                 return True
@@ -458,7 +515,6 @@ class ScintillatorBase:
     @classmethod
     def connect( cls ):
         cls.MONGO = pymongo.MongoClient( Configuration.getMongoDbUri() )
-        #cls.MONGO = pymongo.MongoClient( Configuration.MONGO_HOST, Configuration.MONGO_PORT )
 
 
     @staticmethod
@@ -501,11 +557,7 @@ class ScintillatorBase:
 
     @staticmethod
     def get_path( flow: mitmproxy.http.HTTPFlow ):
-        if flow.request.query:
-            split_at = flow.request.path.find( '?' )
-            return flow.request.path[:split_at]
-        else:
-            return flow.request.path
+        return flow.request.path.split( '?', 1 )[0]
 
 
     @classmethod
@@ -526,6 +578,31 @@ class ScintillatorBase:
 
 
     @classmethod
+    def moment_recorded( cls, moment: Moment ):
+        if moment.org_id:
+            query = {
+                "org_id":  moment.org_id,
+                "host":    moment.request.host
+            }
+
+            update = {
+                "$inc": {
+                    "moments": 1
+                }
+            }
+
+            res = cls.get_mongo( Configuration.MONGO_DB, 'projects' ).update_one( query, update )
+            if res.modified_count == 0:
+                created = datetime.datetime.now()
+                project = query
+                project["created"]   = created
+                project["modified"]  = created
+                project["is_locked"] = True
+                project["moments"]   = 1
+                res = cls.get_mongo( Configuration.MONGO_DB, 'projects' ).insert_one( project )
+
+
+    @classmethod
     def record_request( cls, flow: mitmproxy.http.HTTPFlow ):
         if flow.cancelled:
             return
@@ -535,13 +612,14 @@ class ScintillatorBase:
 
 
         # https://mitmproxy.readthedocs.io/en/v2.0.2/scripting/api.html
-        moment = Moment( flow )
+        flow.moment = Moment( flow )
+        flow.timing['request_parsed'] = datetime.datetime.now()
 
-        as_dict = moment.to_dict()
+        as_dict = flow.moment.to_dict()
         #logging.debug( as_dict )
         res = cls.get_mongo( Configuration.MONGO_DB, 'moments' ).insert_one( as_dict )
-        flow.id = res.inserted_id
-        logging.info({ 'flow.id': flow.id })
+        flow.moment._id = res.inserted_id
+        logging.info({ 'flow.id': flow.moment._id })
 
 
     @classmethod
@@ -555,17 +633,25 @@ class ScintillatorBase:
       
 
 
-        response = Response( flow.response )
-        as_dict = response.to_dict()
+        flow.moment.response = Response( flow.response )
+        flow.timing['response_parsed'] = datetime.datetime.now()
+
+        as_dict = flow.moment.response.to_dict()
         #logging.debug( as_dict )
 
         res = cls.get_mongo( Configuration.MONGO_DB, 'moments' ).update_one(
-          { "_id": flow.id },
-          { "$set": { "response": as_dict } }
+          { "_id": flow.moment._id },
+          { "$set": {
+              "response": as_dict,
+              "timing": flow.timing
+          }}
         )
 
-        flow.response.headers["S-Moment-Id"] = str( flow.id )
-        flow.response.headers["Link"] = '{0}/moment/{1}'.format( Configuration.WEBSITE, str( flow.id ) )
+        flow.response.headers["S-Moment-Id"] = str( flow.moment._id )
+        flow.response.headers["Link"] = '{0}/moment/{1}'.format( Configuration.WEBSITE, str( flow.moment._id ) )
+
+
+        cls.moment_recorded( flow.moment )
 
 
 
@@ -698,13 +784,20 @@ class ScintillatorAddon( ScintillatorBase ):
             is empty.
         """
         logging.debug( '7: requestheaders' )
-        flow.timing = {
-            'request_received': datetime.datetime.now()
-        }
 
-        #TODO: X-Forwarded
-        #TODO: X-Forwarded-For
-        #flow.client_conn.address
+        #flow.client_conn
+        #flow.request
+        #flow.response
+
+        # init
+        flow.cancelled = False
+        flow.ignored   = False
+        flow.moment    = None
+        flow.org       = None
+        flow.timing    = {}
+        flow.user      = None
+
+        flow.timing['request_received'] = datetime.datetime.now()
 
         try:
             self.authorize_request( flow )
@@ -723,10 +816,20 @@ class ScintillatorAddon( ScintillatorBase ):
         
         try:
             self.record_request( flow )
-            flow.timing['request_parsed'] = datetime.datetime.now()
         except ex:
             logging.exception( ex )
             flow.ignored = True
+
+
+        #TODO: X-Forwarded
+        #TODO: X-Forwarded-For
+        if flow.client_conn.address[0].startswith( '::ffff:' ):
+            ip_addr = flow.client_conn.address[0][7:]
+        else:
+            ip_addr = flow.client_conn.address[0]
+        
+        logging.info( 'Address: {0}'.format( ip_addr ) )
+
 
 
     ################ Intermediate Core Event ################
@@ -751,7 +854,7 @@ class ScintillatorAddon( ScintillatorBase ):
 
         logging.debug( '10: responseheaders' )
         flow.timing['response_received'] = datetime.datetime.now()
-        
+
         if not flow.ignored:
             try:
                 self.authorize_response( flow )
@@ -771,7 +874,6 @@ class ScintillatorAddon( ScintillatorBase ):
         if not flow.ignored:
             try:
                 self.record_response( flow )
-                flow.timing['response_parsed'] = datetime.datetime.now()
             except ex:
                 logging.exception( ex )
                 flow.ignored = True
