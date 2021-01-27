@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """Generic event hooks."""
-import datetime, json, logging, logging.handlers, os, sys, typing, urllib.parse
+import datetime, json, logging, logging.handlers, os, re, sys, typing, urllib.parse
 from urllib.parse import urlencode
 
 import mitmproxy.addonmanager
@@ -75,7 +75,7 @@ class Moment( object ):
         'visibility'
     )
 
-    def __init__( self, flow ):
+    def __init__( self, flow: mitmproxy.http.HTTPFlow ):
         self._id        = None
         self.request    = None
         self.org_id     = None
@@ -85,7 +85,6 @@ class Moment( object ):
         self.response   = None
         self.timing     = {}
 
-        self.request  = Request( flow.request )
         if flow.user:
             self.org_id     = flow.user['org_id']
             self.user_id    = flow.user['_id']
@@ -101,7 +100,6 @@ class Moment( object ):
             self.user_id    = None
             self.visibility = 'public'
 
-        #self.response = Response( response ) if flow.response else None
         self.timing = flow.timing
 
 
@@ -126,88 +124,202 @@ class Moment( object ):
 
 
 class HTTPData( object ):
+    '''
+    Used for flow.request.headers and flow.response.headers
+    '''
+    @staticmethod
+    def get_content_length( source ):
+        content_length = 0
+        if source.headers:
+            for value in source.headers.get_all( 'content-length' ):
+                if content_length:
+                    logging.warn( "Content-Length already exists: {0}".format( content_length ))
+
+                try:
+                    content_length = int( value )
+                except ValueError:
+                    pass
+
+        return content_length
+
+
+    '''
+    Used for flow.request.headers and flow.response.headers
+    '''
+    @staticmethod
+    def get_content_type( source ):
+        content_type = None
+        if source.headers:
+            for value in source.headers.get_all( 'content-type' ):
+                if content_type:
+                    logging.warn( "Content-Type already exists: {0}".format( content_type ))
+
+                #TODO: boundary??
+                content_type = value.split( ';', 1 )[0]
+
+        return content_type
+
+
     def load_body( self, source ):
         if hasattr( source, 'multipart_form' ) and source.multipart_form:
             logging.warn( 'MULTIPART_FORM' )
             #TODO: content_type
-            self.body = self.load_multidict( source.multipart_form )
-            return
-
+            self.body = cls.load_multidict( source.multipart_form )
 
         if hasattr( source, 'urlencoded_form' ) and source.urlencoded_form:
             logging.warn( 'URLENCODED' )
-
             #TODO: content_type
-            self.body = self.load_multidict( source.urlencoded_form )
-            return
-
+            self.body = cls.load_multidict( source.urlencoded_form )
 
         if source.text:
             self.body = source.text
-
         elif source.content:
             self.body = source.content
-            
         elif source.raw_content:
             self.body = source.raw_content
 
         if self.body:
-            if not self.content_length:
-                self.content_length = len( self.body )
+            try:
+                self.body = json.loads( self.body )
+                if self.content_type != 'application/json':
+                    logging.warn( "Old content-type: '{0}'".format( self.content_type ) )
+                    self.content_type = 'application/json'
+
+            except Exception as ex:
+                logging.warn( ex )
 
 
-            if self.content_length <= 25000:
-                try:
-                    self.body = json.loads( self.body )
-                    self.is_complete = True
-                    self.is_summary  = False
-                    if self.content_type != 'application/json':
-                        logging.warn( "Old content-type: '{0}'".format( self.content_type ) )
-                        self.content_type = 'application/json'
-
-                except Exception as ex:
-                    logging.warn( ex )
-            else:
-                self.body = None
-                self.is_complete = False
-                self.is_summary  = True
-        else:
-            self.is_complete = True
-            self.is_summary  = False
-
-
-    def load_headers( self, source ):
+    '''
+    Used for flow.request.headers and flow.response.headers
+    '''
+    @staticmethod
+    def load_headers( source ):
+        headers = []
         if source.headers:
-            self.load_multidict( source.headers, self.headers )
+            for key, value in source.headers.items( True ):
+                headers.append({
+                    'k': key,
+                    'v': value,
+                    'i': len( headers )
+                })
 
-            #get_content_length
-            for value in source.headers.get_all( 'content-length' ):
-                try:
-                    self.content_length = int( value )
-                except ValueError:
-                    pass
-
-            #get_content_type
-            for value in source.headers.get_all( 'content-type' ):
-                self.content_type = value.split( ';', 1 )[0]
+        return headers
 
 
     @staticmethod
-    def load_multidict( source, target=None ):
-        no_target = target is None
-        if no_target:
-            target = []
-
-        for key in source:
+    def load_multidict( source ):
+        target = []
+        for key, value in source.items( True ):
             target.append({
                 'k': key,
-                'v': source[ key ],
+                'v': value,
                 'i': len( target )
             })
 
-        return target if no_target else None
-    
-    
+        return target
+
+
+    @staticmethod
+    def load_query( source ):
+        query_data = []
+        if source.query:
+            for key, value in source.query.items( True ):
+                query_data.append({
+                    'k': key,
+                    'v': value,
+                    'i': len( query_data )
+                })
+
+        return query_data
+
+
+    @staticmethod
+    def measure_body( source ):
+        if hasattr( source, 'multipart_form' ) and source.multipart_form:
+            logging.warn( 'MULTIPART_FORM' )
+            logging.warn( source.multipart_form )
+            #TODO: boundary
+            raise NotImplementedError()
+
+            '''
+            body_data = {}
+            flow.moment.request.body = HTTPData.load_form( source.multipart_form,  )
+
+            if flow.moment.request.content_type:
+                logging.warn( 'Received {0}'.format( flow.moment.request.content_type ) )
+                logging.warn( 'Actual multipart/form-data' )
+            else:
+                flow.moment.request.content_type = 'multipart/form-data'
+            '''
+
+        elif hasattr( source, 'urlencoded_form' ) and source.urlencoded_form:
+            logging.warn( 'URLENCODED' )
+            logging.warn( source.multipart_form )
+            #TODO: boundary
+            raise NotImplementedError()
+
+            '''
+            flow.moment.request.body = HTTPData.load_multidict( source.urlencoded_form )
+            #TODO: content_length
+            if not flow.moment.request.content_type:
+                flow.moment.request.content_type = 'application/x-www-form-urlencoded'
+            else:
+                logging.warn( flow.moment.request.content_type )
+            '''
+
+        elif source.text:
+            return len( source.text )
+            '''
+            if not flow.moment.request.content_length:
+                flow.moment.request.content_length = len( flow.moment.request.body )
+
+            if not flow.moment.request.content_type:
+                flow.moment.request.content_type = 'text/plain'
+            else:
+                logging.warn( flow.moment.request.content_type )
+            '''
+
+        elif source.content:
+            return len( source.content )
+            '''
+            if not flow.moment.request.content_length:
+                flow.moment.request.content_length = len( flow.moment.request.body )
+
+            if not flow.moment.request.content_type:
+                flow.moment.request.content_type = 'text/plain'
+            else:
+                logging.warn( flow.moment.request.content_type )
+            '''
+
+        elif source.raw_content:
+            return len( source.raw_content )
+            '''
+            if not flow.moment.request.content_length:
+                flow.moment.request.content_length = len( flow.moment.request.body )
+
+            if not flow.moment.request.content_type:
+                flow.moment.request.content_type = 'text/plain'
+            else:
+                logging.warn( flow.moment.request.content_type )
+            '''
+        else:
+            return 0
+
+
+    '''
+    Used for flow.request.headers and flow.response.headers
+    '''
+    @staticmethod
+    def measure_headers( source ):
+        length = 0
+        if source.headers:
+            for key, value in source.headers.items( True ):
+                # +2 for colon (:) and newline (\n)
+                length += len( key ) + len( value ) + 2
+
+        return length
+
+
     def to_dict( self ):
         return { slot: getattr( self, slot ) for slot in self.__slots__ }
 
@@ -253,10 +365,11 @@ class Request( HTTPData ):
         self.is_summary = False
 
         if request:
-            #logging.debug( request )
-            #for k in [ 'host', 'host_header', 'pretty_host' ]:
-            #    logging.debug({ k: getattr( request, k ) })
-
+            '''
+            logging.debug( request )
+            for k in [ 'host', 'host_header', 'pretty_host' ]:
+                logging.debug({ k: getattr( request, k ) })
+            '''
             '''
             for k in [ 'text', 'content', 'raw_content', 'urlencoded_form', 'multipart_form' ]:
                 val = getattr( request, k )
@@ -274,13 +387,11 @@ class Request( HTTPData ):
             self.port   = request.port
             self.path   = request.path
 
-            self.load_headers( request )
-
+            self.content_length = self.get_content_length( request )
+            self.content_type   = self.get_content_type( request )
             if request.query:
                 self.path, self.query_string = self.path.split( '?', 1 )
-                self.load_multidict( request.query, self.query_data )
 
-            self.load_body( request )
 
 
 class Response( HTTPData ):
@@ -312,24 +423,28 @@ class Response( HTTPData ):
         self.is_summary = False
 
         if response:
-            #for k in [ 'text', 'content', 'raw_content' ]:
-            #    val = getattr( response, k )
-            #    b = not not val
-            #    logging.debug({
-            #      k: val,
-            #      'bool': b
-            #    })
+            '''
+            for k in [ 'text', 'content', 'raw_content' ]:
+                val = getattr( response, k )
+                b = not not val
+                logging.debug({
+                  k: val,
+                  'bool': b
+                })
+            '''
 
             self.http_version = response.http_version
             self.status_code = response.status_code
-
-            self.load_headers( response )
-            self.load_body( response )
+            self.content_length = self.get_content_length( response )
+            self.content_type = self.get_content_type( response )
 
 
 
 ################ Scintillator Methods ################
 class ScintillatorBase:
+    BASE_64 = re.compile( '^[0-9A-Za-z+/]+$' )
+    HEX = re.compile( '^[0-9A-Fa-f]+$' )
+
     MAX_CONTENT_LENGTH = 20000
     
     MONGO = None
@@ -362,11 +477,6 @@ class ScintillatorBase:
 
     @classmethod
     def authorize_request( cls, flow: mitmproxy.http.HTTPFlow ):
-        if cls.ignore_request( flow ):
-            logging.info( "Ignoring request path '{0}'".format( path ) )
-            flow.ignored = True
-            return
-
         client_key = cls.get_client_key( flow )
         if not client_key:
             # anonymous is ratelimited by IP
@@ -390,27 +500,6 @@ class ScintillatorBase:
             return
         else:
             cls.cancel_proxy( flow, "Proxy: Too Many Requests", 429 )
-
-
-    @classmethod
-    def authorize_response( cls, flow: mitmproxy.http.HTTPFlow ):
-        for value in flow.response.headers.get_all( 'content-length' ):
-            try:
-                value = int( value )
-            except ValueError:
-                logging.warn( "Could not convert Content-Length( {0} ) to int".format( value ) )
-                continue
-
-            if value > cls.MAX_CONTENT_LENGTH:
-                logging.warn( "Content-Length too long: {0}".format( value ) )
-            else:
-                logging.debug( "Content-Length ok: {0}".format( value ) )
-
-        for value in flow.response.headers.get_all( 'content-type' ):
-            if value in cls.RECORD_CONTENT_TYPES:
-                logging.debug( "Content-Type supported: {0}".format( value ) )
-            else:
-                logging.warn( "Content-Type unsupported: {0}".format( value ) )
 
 
     @classmethod
@@ -451,7 +540,6 @@ class ScintillatorBase:
             logging.debug( 'User not found...' )
             return True
 
-    
 
     @staticmethod
     def cancel_proxy( flow: mitmproxy.http.HTTPFlow, content, status_code, headers=None ):
@@ -460,7 +548,7 @@ class ScintillatorBase:
                 "Content-Type": "text/plain"
             }
 
-        flow.cancelled = True
+        flow.is_cancelled = True
         flow.response = mitmproxy.http.HTTPResponse.make(
             status_code,  # (optional) status code
             content,      # (optional) content
@@ -517,36 +605,35 @@ class ScintillatorBase:
         cls.MONGO = pymongo.MongoClient( Configuration.getMongoDbUri() )
 
 
-    @staticmethod
-    def get_client_key( flow ):
-        #TODO: check for base64
+    @classmethod
+    def get_client_key( cls, flow ):
+        my_key = None
+        keep_fields = []
+        check_headers = ( 'x-api-key', 'x-client-key' )
+        for key, value in flow.request.headers.items( True ):
+            if key.lower() in check_headers:
+                if value.startswith( 'sci/' ) and cls.BASE_64.match( value ):
+                    if my_key:
+                        logging.debug( "Ignoring Scintillator {0}: {1}".format( key, value ) )
+                    else:
+                        logging.debug( "Found {0}: {1}".format( key, value ) )
+                        my_key = value
 
-        client_key = None
-        for value in flow.request.headers.get_all( 'x-client-key' ):
-            if client_key:
-                logging.debug( "Ignoring X-Client-Key: {0}".format( value ) )
-            
-            else:
-                logging.debug( "Found X-Client-Key: {0}".format( value ) )
-                client_key = value
-
-        if client_key:
-            del flow.request.headers[ 'x-client-key' ]
-
-
-        for value in flow.request.headers.get_all( 'x-api-key' ):
-            if client_key:
-                logging.debug( "Ignoring X-Api-Key: {0}".format( value ) )
+                else:
+                    logging.debug( "Ignoring {0}: {1}".format( key, value ) )
+                    keep_fields.append(( key, value ))
 
             else:
-                logging.debug( "Found X-Api-Key: {0}".format( value ) )
-                client_key = value
+                logging.debug( "Ignoring {0}: {1}".format( key, value ) )
+                keep_fields.append(( key, value ))
 
-        if client_key:
-            del flow.request.headers[ 'x-api-key' ]
+        #only rebuild if something changed
+        if my_key:
+            flow.request.headers.clear()
+            for key, value in keep_fields:
+                flow.request.headers.add( key, value )
 
-
-        return client_key
+        return my_key
 
 
     @classmethod
@@ -572,9 +659,33 @@ class ScintillatorBase:
 
     @classmethod
     def ignore_request( cls, flow: mitmproxy.http.HTTPFlow ):
-        path = cls.get_path( flow )
-        _, ext = os.path.splitext( flow.request.path )
-        return ext in cls.SKIP_REQUEST_EXT
+        if not flow.is_ignored:
+            path = cls.get_path( flow )
+            _, ext = os.path.splitext( flow.request.path )
+            flow.is_ignored = ext in cls.SKIP_REQUEST_EXT
+
+        return flow.is_ignored
+
+
+    @classmethod
+    def ignore_response( cls, flow: mitmproxy.http.HTTPFlow ):
+        for value in flow.response.headers.get_all( 'content-length' ):
+            try:
+                value = int( value )
+            except ValueError:
+                logging.warn( "Could not convert Content-Length( {0} ) to int".format( value ) )
+                continue
+
+            if value > cls.MAX_CONTENT_LENGTH:
+                logging.warn( "Content-Length too long: {0}".format( value ) )
+            else:
+                logging.debug( "Content-Length ok: {0}".format( value ) )
+
+        for value in flow.response.headers.get_all( 'content-type' ):
+            if value in cls.RECORD_CONTENT_TYPES:
+                logging.debug( "Content-Type supported: {0}".format( value ) )
+            else:
+                logging.warn( "Content-Type unsupported: {0}".format( value ) )
 
 
     @classmethod
@@ -604,16 +715,38 @@ class ScintillatorBase:
 
     @classmethod
     def record_request( cls, flow: mitmproxy.http.HTTPFlow ):
-        if flow.cancelled:
-            return
-
-        if flow.ignored:
-            return
-
-
+        #TODO: load_request_summary
         # https://mitmproxy.readthedocs.io/en/v2.0.2/scripting/api.html
         flow.moment = Moment( flow )
+        flow.moment.request = Request( flow.request )
+
+        headers_length = HTTPData.measure_headers( flow.request )
+        query_length   = len( flow.moment.request.query_string )
+        if flow.moment.request.content_length:
+            body_length = HTTPData.measure_body( flow.request )
+            if body_length != flow.moment.request.content_length:
+                logging.warn( 'Content-Length (header): {0}'.format( flow.moment.request.content_length ) )
+                logging.warn( 'Content-Length (body): {0}'.format( HTTPData.measure_body( flow.request ) ) )
+        else:
+            flow.moment.request.content_length = HTTPData.measure_body( flow.request )
+
+        total_length = headers_length + query_length + flow.moment.request.content_length
+        logging.warn( 'total_length: {0}'.format( total_length ) )
+
+
+        #TODO: plan limits vs user limits
+        flow.moment.request.is_complete = True
+
+
+        #TODO: 
+        if flow.moment.request.is_complete:
+            flow.moment.request.query_data = HTTPData.load_query( flow.request )
+            flow.moment.request.headers    = HTTPData.load_headers( flow.request )
+            flow.moment.request.load_body( flow.request )
+
+
         flow.timing['request_parsed'] = datetime.datetime.now()
+
 
         as_dict = flow.moment.to_dict()
         #logging.debug( as_dict )
@@ -624,21 +757,33 @@ class ScintillatorBase:
 
     @classmethod
     def record_response( cls, flow: mitmproxy.http.HTTPFlow ):
-        if flow.cancelled:
-            return
-
-        if flow.ignored:
-            return
-
-      
-
-
         flow.moment.response = Response( flow.response )
+
+        headers_length = HTTPData.measure_headers( flow.response )
+        if flow.moment.response.content_length:
+            logging.warn( 'Content-Length (header): {0}'.format( flow.moment.response.content_length ) )
+            logging.warn( 'Content-Length (body): {0}'.format( HTTPData.measure_body( flow.response ) ) )
+        else:
+            flow.moment.response.content_length = HTTPData.measure_body( flow.response )
+
+        total_length = headers_length + flow.moment.response.content_length
+        logging.warn( 'total_length: {0}'.format( total_length ) )
+
+        
+        #TODO: plan limits vs user limits
+        flow.moment.response.is_complete = True
+
+
+        if flow.moment.response.is_complete:
+            flow.moment.response.headers    = HTTPData.load_headers( flow.response )
+            flow.moment.response.load_body( flow.response )
+
+
         flow.timing['response_parsed'] = datetime.datetime.now()
+
 
         as_dict = flow.moment.response.to_dict()
         #logging.debug( as_dict )
-
         res = cls.get_mongo( Configuration.MONGO_DB, 'moments' ).update_one(
           { "_id": flow.moment._id },
           { "$set": {
@@ -649,8 +794,6 @@ class ScintillatorBase:
 
         flow.response.headers["S-Moment-Id"] = str( flow.moment._id )
         flow.response.headers["Link"] = '{0}/moment/{1}'.format( Configuration.WEBSITE, str( flow.moment._id ) )
-
-
         cls.moment_recorded( flow.moment )
 
 
@@ -790,20 +933,27 @@ class ScintillatorAddon( ScintillatorBase ):
         #flow.response
 
         # init
-        flow.cancelled = False
-        flow.ignored   = False
+        flow.is_cancelled = False
+        flow.is_ignored   = False
         flow.moment    = None
         flow.org       = None
         flow.timing    = {}
         flow.user      = None
 
+        #request_started??
         flow.timing['request_received'] = datetime.datetime.now()
+
+        if self.ignore_request( flow ):
+            path = cls.get_path( flow )
+            logging.info( "Ignoring request path '{0}'".format( path ) )
+            return
+
 
         try:
             self.authorize_request( flow )
         except ex:
             logging.exception( ex )
-            flow.ignored = True
+            flow.is_ignored = True
 
 
     #8
@@ -813,12 +963,18 @@ class ScintillatorAddon( ScintillatorBase ):
             The full HTTP request has been read.
         """
         logging.debug( '8: request' )
-        
+        if flow.is_cancelled or flow.is_ignored:
+            return
+
+        #??
+        #flow.timing['request_received'] = datetime.datetime.now()
+
+
         try:
             self.record_request( flow )
-        except ex:
+        except Exception as ex:
             logging.exception( ex )
-            flow.ignored = True
+            flow.is_ignored = True
 
 
         #TODO: X-Forwarded
@@ -827,7 +983,8 @@ class ScintillatorAddon( ScintillatorBase ):
             ip_addr = flow.client_conn.address[0][7:]
         else:
             ip_addr = flow.client_conn.address[0]
-        
+
+
         logging.info( 'Address: {0}'.format( ip_addr ) )
 
 
@@ -851,16 +1008,19 @@ class ScintillatorAddon( ScintillatorBase ):
             HTTP response headers were successfully read. At this point, the body
             is empty.
         """
-
         logging.debug( '10: responseheaders' )
+        if flow.is_cancelled or flow.is_ignored:
+            return
+
+
+        #response_started??
         flow.timing['response_received'] = datetime.datetime.now()
 
-        if not flow.ignored:
-            try:
-                self.authorize_response( flow )
-            except ex:
-                logging.exception( ex )
-                flow.ignored = True
+        #TODO:
+        #if self.ignore_response( flow ):
+        #    logging.info( "Ignoring response" )
+        #    return
+
 
 
     #11
@@ -870,13 +1030,17 @@ class ScintillatorAddon( ScintillatorBase ):
             The full HTTP response has been read.
         """
         logging.debug( '11: response' )
-        
-        if not flow.ignored:
-            try:
-                self.record_response( flow )
-            except ex:
-                logging.exception( ex )
-                flow.ignored = True
+        if flow.is_cancelled or flow.is_ignored:
+            return
+
+        #???
+        #flow.timing['response_received'] = datetime.datetime.now()
+
+        try:
+            self.record_response( flow )
+        except ex:
+            logging.exception( ex )
+            flow.is_ignored = True
 
 
     ################ Final Core Event ################
