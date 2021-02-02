@@ -29,6 +29,7 @@ class NoData( Exception ):
 
 class ContentType( object ):
     APPLICATION_JSON = 'application/json'
+    APPLICATION_JSON_PB = 'application/json+protobuf'
     APPLICATION_XWWWFORMURLENCODED = 'application/x-www-form-urlencoded'
     MULTIPART_FORMDATA = 'multipart/form-data'
     TEXT_PLAIN = 'text/plain'
@@ -50,6 +51,7 @@ class Configuration( object ):
     REQUEST_CONTENT_LENGTH = 5000
     REQUEST_CONTENT_TYPES  = (
         ContentType.APPLICATION_JSON,
+        ContentType.APPLICATION_JSON_PB,
         ContentType.APPLICATION_XWWWFORMURLENCODED,
         ContentType.MULTIPART_FORMDATA,
         #ContentType.TEXT_PLAIN
@@ -58,10 +60,11 @@ class Configuration( object ):
     RESPONSE_CONTENT_LENGTH = 20000
     RESPONSE_CONTENT_TYPES  = (
         ContentType.APPLICATION_JSON,
+        ContentType.APPLICATION_JSON_PB,
         ContentType.TEXT_PLAIN
     )
 
-    SKIP_AUTH = True
+    SKIP_AUTH = False
     SKIP_REQUEST_EXT = (
       '.css',
       '.doc',
@@ -142,28 +145,11 @@ class Moment( object ):
         self.generator  = 'python'
         self.org_id     = None
         self.user_id    = None
-        self.visibility = None
+        self.visibility = 'private'
 
         self.request    = None
         self.response   = None
-        self.timing     = {}
-
-        if flow.user:
-            self.org_id     = flow.user['org_id']
-            self.user_id    = flow.user['_id']
-            self.visibility = 'private'
-
-        elif flow.org:
-            self.org_id     = flow.org['_id']
-            self.user_id    = None
-            self.visibility = 'private'
-
-        else:
-            self.org_id     = None
-            self.user_id    = None
-            self.visibility = 'public'
-
-        self.timing = flow.timing
+        self.timing     = flow.timing
 
 
     def to_dict( self ):
@@ -842,11 +828,11 @@ class ScintillatorBase:
         check_headers = ( 'x-api-key', 'x-client-key' )
         for key, value in flow.request.headers.items( True ):
             if key.lower() in check_headers:
-                if value.endswith( '/tor' ) and cls.BASE_64.match( value ):
+                if cls.is_scintillator_key( value ):
                     if my_key:
                         logging.info( "Ignoring Scintillator {0}: {1}".format( key, value ) )
                     else:
-                        logging.info( "Found {0}: {1}".format( key, value ) )
+                        logging.info( "Found Scintillator {0}: {1}".format( key, value ) )
                         my_key = value
 
                 else:
@@ -915,6 +901,11 @@ class ScintillatorBase:
 
 
     @classmethod
+    def is_scintillator_key( cls, value ):
+        return value.endswith( '/tor' ) and cls.BASE_64.match( value )
+
+
+    @classmethod
     def load_request( cls, flow: mitmproxy.http.HTTPFlow, get_body=False ):
         flow.moment = Moment( flow )
         flow.moment.request = Request( flow.request )
@@ -964,14 +955,20 @@ class ScintillatorBase:
 
     @classmethod
     def record_request( cls, flow: mitmproxy.http.HTTPFlow ):
+        if flow.user:
+            flow.moment.org_id     = flow.user['org_id']
+            flow.moment.user_id    = flow.user['_id']
+            flow.moment.visibility = 'private'
 
-        #TODO: 
-        if flow.moment.request.is_complete:
+        elif flow.org:
+            flow.moment.org_id     = flow.org['_id']
+            flow.moment.user_id    = None
+            flow.moment.visibility = 'private'
 
-            flow.moment.request.load_body( flow.request )
-
-
-        flow.timing['request_parsed'] = datetime.datetime.now()
+        else:
+            flow.moment.org_id     = None
+            flow.moment.user_id    = None
+            flow.moment.visibility = 'public'
 
 
         as_dict = flow.moment.to_dict()
@@ -1156,23 +1153,19 @@ class ScintillatorAddon( ScintillatorBase ):
 
         #TODO: flow.moment.request.path
         if flow.moment.request.content_type and flow.moment.request.content_type in Configuration.REQUEST_CONTENT_TYPES:
-            if self.is_authorized( flow ):
-                if flow.moment.request.content_type == ContentType.MULTIPART_FORMDATA:
-                    #undecided, get the body
-                    flow.status = FlowStatus.NONE
-                elif flow.moment.request.content_length:
-                    if flow.moment.request.content_length <= Configuration.REQUEST_CONTENT_LENGTH:
-                        flow.status = FlowStatus.COMPLETE
-                    else:
-                        logging.warn( 'Request body {0} > {1}'.format( flow.moment.request.content_length, Configuration.REQUEST_CONTENT_LENGTH ) )
-                        flow.status = FlowStatus.SUMMARY
-                        flow.request.stream = True
+            if flow.moment.request.content_type == ContentType.MULTIPART_FORMDATA:
+                #undecided, get the body
+                flow.status = FlowStatus.NONE
+            elif flow.moment.request.content_length:
+                if flow.moment.request.content_length <= Configuration.REQUEST_CONTENT_LENGTH:
+                    flow.status = FlowStatus.COMPLETE
                 else:
-                    #undecided, get the body
-                    flow.status = FlowStatus.NONE
-
+                    logging.warn( 'Request body {0} > {1}'.format( flow.moment.request.content_length, Configuration.REQUEST_CONTENT_LENGTH ) )
+                    flow.status = FlowStatus.SUMMARY
+                    flow.request.stream = True
             else:
-                return self.cancel_proxy( flow, "Proxy: Authentication Failed", 407 )
+                #undecided, get the body
+                flow.status = FlowStatus.NONE
 
         else:
             #wrong type
@@ -1193,10 +1186,6 @@ class ScintillatorAddon( ScintillatorBase ):
 
         if flow.status == FlowStatus.IGNORE:
             logging.info( "REQUEST flow.status = '{0}'".format( flow.status ) )
-            return
-
-        if not self.check_ratelimit( flow ):
-            cls.cancel_proxy( flow, "Proxy: Too Many Requests", 429 )
             return
 
 
@@ -1236,12 +1225,20 @@ class ScintillatorAddon( ScintillatorBase ):
 
 
         if flow.status in ( FlowStatus.COMPLETE, FlowStatus.SUMMARY ):
-            logging.info( "REQUEST flow.status = '{0}'".format( flow.status ) )
-            try:
-                self.record_request( flow )
-            except Exception as ex:
-                logging.exception( ex )
-                flow.status = FlowStatus.IGNORE
+            if not self.is_authorized( flow ):
+                return self.cancel_proxy( flow, "Proxy: Authentication Failed", 407 )
+
+            elif not self.check_ratelimit( flow ):
+                return self.cancel_proxy( flow, "Proxy: Too Many Requests", 429 )
+
+            else:
+                logging.info( "REQUEST flow.status = '{0}'".format( flow.status ) )
+                try:
+                    self.record_request( flow )
+                except Exception as ex:
+                    logging.exception( ex )
+                    flow.status = FlowStatus.IGNORE
+
         else:
             logging.info( "REQUEST flow.status = '{0}'".format( flow.status ) )
 
