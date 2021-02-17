@@ -1,0 +1,114 @@
+{
+  "behavior": "first",
+  "rules": [
+    {
+      "index":  1,
+      "target": "requestheaders",
+      "filters": {
+        "method": [ "DELETE", "GET", "HEAD", "OPTIONS", "TRACE" ]
+      },
+      "agents": [{
+        "type": "RequestSummaryAgent",
+        "args": [],
+        "kwargs": {}
+      }]
+    },
+    {
+      "index":  2,
+      "target": "requestheaders",
+      "filters": {
+        "method": [ "PATCH", "POST", "PUT" ],
+        "content_length": [ 0, 5000 ],
+        "content_type": [
+          "application/json",
+          "application/json+protobuf",
+          "application/x-www-form-urlencoded",
+          "multipart/form-data"
+        ]
+      },
+      "agents": [{
+        "type": "RequestDetailAgent",
+        "args": [ 1, 2, 3 ],
+        "kwargs": {
+          "code": 407,
+          "message": "You didn't say the magic word"
+        }
+      }]
+    },
+    {
+      "index":  3,
+      "target": "requestheaders",
+      "filters": {},
+      "agents": [{
+        "type":   "DenyAgent",
+        "args":   [],
+        "kwargs": {
+          "status_code": 403,
+          "headers": {
+            "Content-Type": "text/plain"
+          },
+          "content": "Request blocked by rule"
+        }
+      }]
+    },
+    {
+      "index":  4,
+      "target": "request",
+      "filters": {
+        "method": [ "PATCH", "POST", "PUT" ],
+        "content_length": [ 0, 5000 ],
+        "content_type": [
+          "application/json",
+          "application/json+protobuf",
+          "application/x-www-form-urlencoded",
+          "multipart/form-data"
+        ]
+      },
+      "agents": [{
+        "type":   "RequestDetailAgent",
+        "args":   [],
+        "kwargs": {}
+      }]
+    },
+    {
+      "index":  5,
+      "target": "responseheaders",
+      "filters": {
+        "content_length": [ 0, 20000 ],
+        "content_type": [
+          "application/json",
+          "application/json+protobuf"
+        ]
+      },
+      "agents": [{
+        "type":   "ResponseDetailAgent",
+        "args":   [],
+        "kwargs": {}
+      }]
+    },
+    {
+      "index":  6,
+      "target": "responseheaders",
+      "filters": {
+        "status": [ 500, 599 ]
+      },
+      "agents": [{
+        "type":   "ResponseDetailAgent",
+        "args":   [],
+        "kwargs": {}
+      }]
+    },
+    {
+      "index":  7,
+      "target": "responseheaders",
+      "filters": {
+        "status": [ 400, 499 ]
+      },
+      "agents": [{
+        "type":   "ResponseDetailAgent",
+        "args":   [],
+        "kwargs": {}
+      }]
+    }
+  ]
+}

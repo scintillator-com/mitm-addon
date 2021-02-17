@@ -11,3 +11,6 @@ mitmdump -s scintillator/scintillator.py
 ```
 
 ref: https://github.com/mitmproxy/mitmproxy/blob/master/CONTRIBUTING.md
+
+
+pip3 install -r requirements.txt
