@@ -506,15 +506,13 @@ class Request( HTTPData ):
                 })
             '''
 
-            logging.info( request.scheme )
-            logging.info( request.port )
 
-
+            # NOTE: port and scheme are not available yet!
             self.http_version = request.http_version
             self.method = request.method
-            self.scheme = request.scheme
+            self.scheme = request.scheme or None
             self.host   = request.host_header
-            self.port   = request.port
+            self.port   = request.port or None
             self.path   = request.path
 
             if request.query:
@@ -614,7 +612,7 @@ class Response( HTTPData ):
 
 
     def measure_body( self, flow ):
-        body_length = HTTPData.measure_body( flow.response, self.body_boundary )
+        body_length, has_files = HTTPData.measure_body( flow.response, self.body_boundary )
         if self.content_length:
             if body_length != self.content_length:
                 logging.warning( 'Content-Length (header): {0}'.format( self.content_length ) )
@@ -767,11 +765,11 @@ class RuleFilters( object ):
         return True
 
 
-    def is_match_reponseheaders( self, res: Response ):
+    def is_match_reponseheaders( self, res:Response ):
         if self.content_length:
-            if res.content_length < self.content_length[0]:
-                return False
-            elif res.content_length > self.content_length[1]:
+            if self.content_length[0] <= res.content_length and res.content_length <= self.content_length[1]:
+                pass
+            else:
                 return False
 
         if self.content_type:
@@ -897,7 +895,7 @@ class Rule( object ):
 
         instance.filters = RuleFilters.load( rule_data['filters'] )
         instance.index  = rule_data['index']
-        instance.target = rule_data['target']
+        instance.target = getattr( RuleTarget, rule_data['target'] )
         return instance
 
 
@@ -919,6 +917,8 @@ class Rule( object ):
             raise
 
         if not self.target:
+            raise
+        elif self.target not in RuleTarget.ALL:
             raise
 
         if not self.filters.validate( self.target ):

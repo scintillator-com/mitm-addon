@@ -13,7 +13,7 @@ import mitmproxy.proxy.protocol
 from mitmproxy.script import concurrent
 
 from config import Configuration
-from enums  import FlowAttributes, RuleTarget
+from enums  import FlowAttributes, FlowTasks, RuleTarget
 from models import HTTPData, Moment, Request, Response, Rule, RuleSet
 
 
@@ -77,7 +77,7 @@ class AddonBase( object ):
 
 
     @classmethod
-    def process_rules( cls, target:str, flow:mitmproxy.http.HTTPFlow ):
+    def process_rules( cls, flow:mitmproxy.http.HTTPFlow, target:str ):
         if cls.is_flow_denied( flow ):
             logging.debug( "SKIP: process_rules( '{0}' ) because flow is DENIED".format( target ) )
             return
@@ -91,6 +91,128 @@ class AddonBase( object ):
 
         cls.RULES_MANAGER.process( flow, target )
 
+
+    @classmethod
+    def process_tasks( cls, flow, abilities ):
+        remaining = []
+        for task in flow.pending:
+            if task in abilities:
+                cls.process_task( flow, task )
+            else:
+                remaining.append( task )
+        flow.pending = remaining
+
+
+    @classmethod
+    def process_task( cls, flow, task ):
+        if task == FlowTasks.LOAD_REQUEST_DETAIL:
+            cls.load_request_detail( flow )
+            flow.completed.append( task )
+            return
+
+        if task == FlowTasks.LOAD_REQUEST_SUMMARY:
+            cls.load_request_summary( flow )
+            flow.completed.append( task )
+            return
+
+        if task == FlowTasks.LOAD_RESPONSE_DETAIL:
+            cls.load_response_detail( flow )
+            flow.completed.append( task )
+            return
+
+        if task == FlowTasks.LOAD_RESPONSE_SUMMARY:
+            cls.load_response_summary( flow )
+            flow.completed.append( task )
+            return
+
+        if task == FlowTasks.SAVE_REQUEST_DETAIL:
+            cls.save_request_detail( flow )
+            flow.completed.append( task )
+            return
+
+        if task == FlowTasks.SAVE_RESPONSE_DETAIL:
+            cls.save_response_detail( flow )
+            flow.completed.append( task )
+            return
+
+        raise NotImplementedError( task )
+
+
+    @staticmethod
+    def load_request_detail( flow ):
+        if flow.request.stream:
+            flow.moment.timing['request_parsed'] = None
+        else:
+            flow.moment.request.load_body( flow.request )
+            flow.moment.timing['request_parsed'] = datetime.datetime.now()
+            flow.moment.request.measure_body( flow )
+
+
+    @staticmethod
+    def load_request_summary( flow ):
+        flow.moment.request = Request( flow.request )
+        
+        flow.moment.request.port = flow.server_conn.address[1]
+        if flow.moment.request.port == 80:
+            flow.moment.request.scheme = 'http'
+        elif flow.moment.request.port == 443:
+            flow.moment.request.scheme = 'https'
+        else:
+            logging.warning( "Can't default scheme for port({0})".format( flow.moment.request.port ))
+
+        total_length = flow.moment.request.measure()
+        logging.debug( 'content_length: {0}'.format( flow.moment.request.content_length ) )
+        logging.debug( 'total_length:   {0}'.format( total_length ) )
+
+        if flow.moment.request.content_length:
+            #logging.warning( "Request has Content-Length( {0} )".format(
+            #    flow.moment.request.content_length
+            #))
+            pass
+
+        elif flow.moment.request.content_type:
+            logging.warning( 'Request has Content-Type without Content-Length' )
+            #raise 411
+
+
+    @staticmethod
+    def load_response_detail( flow ):
+        if flow.response.stream:
+            flow.moment.timing['response_parsed'] = None
+        else:
+            flow.moment.response.load_body( flow.response )
+            flow.moment.timing['response_parsed'] = datetime.datetime.now()
+            flow.moment.response.measure_body( flow )
+
+
+    @staticmethod
+    def load_response_summary( flow ):
+        flow.moment.response = Response( flow.response )
+        total_length = flow.moment.response.measure()
+        logging.debug( 'content_length: {0}'.format( flow.moment.response.content_length ) )
+        logging.debug( 'total_length:   {0}'.format( total_length ) )
+
+        if flow.moment.response.content_length:
+            #logging.warning( "Response has Content-Length( {0} )".format(
+            #    flow.moment.response.content_length
+            #))
+            pass
+
+        elif flow.moment.response.content_type:
+            logging.warning( 'Response has Content-Type without Content-Length' )
+            #raise 411
+
+
+    @staticmethod
+    def save_request_detail( flow ):
+        RecordAgentBase.record_moment( flow.moment )
+        raise NotImplementedError( 'save_request_detail' )
+
+
+    @staticmethod
+    def save_response_detail( flow ):
+        RecordAgentBase.record_moment( flow.moment )
+        raise NotImplementedError( 'save_response_detail' )
 
 
 class ScintillatorAddon( AddonBase ):
@@ -212,35 +334,34 @@ class ScintillatorAddon( AddonBase ):
 
 
     #7
-    @concurrent
     def requestheaders(self, flow: mitmproxy.http.HTTPFlow):
         """
             HTTP request headers were successfully read. At this point, the body
             is empty.
         """
         logging.info( '7: requestheaders' )
+        abilities = {
+            FlowTasks.LOAD_REQUEST_SUMMARY
+        }
 
         #request_started??
         request_received = datetime.datetime.now()
 
         # init
         flow.attributes = set()
-        flow.moment = Moment()
-        flow.org    = None
-        flow.status = FlowAttributes.NONE
-        flow.user   = None
-        flow.moment.timing  = { 'request_received': request_received }
-        flow.moment.request = Request( flow.request )
-        
+        flow.completed  = []
+        flow.moment     = Moment()
+        flow.moment.timing = { 'request_received': request_received }
+        flow.pending    = [ FlowTasks.LOAD_REQUEST_SUMMARY ]
+        flow.org        = None
+        flow.status     = FlowAttributes.NONE
+        flow.user       = None
+
+        #pre - load request summary
+        self.process_tasks( flow, abilities )
         self.add_xff_headers( flow )
-        total_length = flow.moment.request.measure()
-        logging.debug( 'content_length: {0}'.format( flow.moment.request.content_length ) )
-        logging.debug( 'total_length:   {0}'.format( total_length ) )
-
-        #if content_type and not content_length
-        #raise 411
-
-        self.process_rules( RuleTarget.requestheaders, flow )
+        self.process_rules( flow, RuleTarget.requestheaders )
+        self.process_tasks( flow, abilities )
 
 
     #8
@@ -250,6 +371,17 @@ class ScintillatorAddon( AddonBase ):
             The full HTTP request has been read.
         """
         logging.info( '8: request' )
+        abilities = {
+            FlowTasks.LOAD_REQUEST_DETAIL,
+            FlowTasks.SAVE_REQUEST_DETAIL
+        }
+
+        if flow.request.scheme:
+            flow.moment.request.scheme = flow.request.scheme
+
+        if flow.request.port:
+            flow.moment.request.port = flow.request.port
+
         if self.is_flow_denied( flow ):
             logging.debug( "SKIP: request( flow ) because flow is DENIED" )
             return
@@ -258,16 +390,10 @@ class ScintillatorAddon( AddonBase ):
             logging.debug( "SKIP: request( flow ) because flow is IGNORED" )
             return
 
-        if flow.request.stream:
-            flow.moment.timing['request_parsed'] = None
-        else:
-            flow.moment.request.load_body( flow.request )
-            flow.moment.timing['request_parsed'] = datetime.datetime.now()
-            flow.moment.request.measure_body( flow )
 
-
-        self.process_rules( RuleTarget.request, flow )
-
+        self.process_tasks( flow, abilities )
+        self.process_rules( flow, RuleTarget.request )
+        self.process_tasks( flow, abilities )
 
 
     ################ Intermediate Core Event ################
@@ -290,9 +416,12 @@ class ScintillatorAddon( AddonBase ):
             is empty.
         """
         logging.info( '10: responseheaders' )
-        
         #response_started??
         response_received = datetime.datetime.now()
+        abilities = {
+            FlowTasks.LOAD_RESPONSE_SUMMARY
+        }
+
         if self.is_flow_denied( flow ):
             logging.debug( "SKIP: responseheaders( flow ) because flow is DENIED" )
             return
@@ -303,15 +432,10 @@ class ScintillatorAddon( AddonBase ):
 
 
         flow.moment.timing[ 'response_received' ] = response_received
-        flow.moment.response = Response( flow.response )
-        total_length = flow.moment.response.measure()
-        logging.debug( 'content_length: {0}'.format( flow.moment.response.content_length ) )
-        logging.debug( 'total_length:   {0}'.format( total_length ) )
-
-        #if content_type and not content_length
-        #raise 411
-
-        self.process_rules( RuleTarget.responseheaders, flow )
+        flow.pending.append( FlowTasks.LOAD_RESPONSE_SUMMARY )
+        self.process_tasks( flow, abilities )
+        self.process_rules( flow, RuleTarget.responseheaders )
+        self.process_tasks( flow, abilities )
 
 
     #11
@@ -321,6 +445,9 @@ class ScintillatorAddon( AddonBase ):
             The full HTTP response has been read.
         """
         logging.info( '11: response' )
+        abilities = {
+            FlowTasks.LOAD_RESPONSE_DETAIL
+        }
         if self.is_flow_denied( flow ):
             logging.debug( "SKIP: response( flow ) because flow is DENIED" )
             return
@@ -330,19 +457,10 @@ class ScintillatorAddon( AddonBase ):
             return
 
 
-        if flow.response.stream:
-            flow.moment.timing['response_parsed'] = None
-        else:
-            flow.moment.response.load_body( flow.response )
-            flow.moment.timing['response_parsed'] = datetime.datetime.now()
-            flow.moment.response.measure_body( flow )
-
-
-        if flow.moment._id:
-            flow.response.headers["S-Moment-Id"] = str( flow.moment._id )
-            flow.response.headers["Link"] = '{0}/moment/{1}'.format( Configuration.WEBSITE, str( flow.moment._id ) )
-
-        self.process_rules( RuleTarget.response, flow )
+        flow.pending.append( FlowTasks.LOAD_RESPONSE_DETAIL )
+        self.process_tasks( flow, abilities )
+        self.process_rules( flow, RuleTarget.response )
+        self.process_tasks( flow, abilities )
 
 
     ################ Final Core Event ################

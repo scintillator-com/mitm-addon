@@ -1,0 +1,105 @@
+{
+  "behavior": "first",
+  "rules": [
+    {
+      "index":  1,
+      "target": "requestheaders",
+      "filters": {
+        "method": [ "DELETE", "GET", "HEAD", "OPTIONS", "TRACE" ],
+      },
+      "agent": {
+        "type": "RequestSummaryAgent",
+        "args": [],
+        "kwargs": {}
+      }
+    },
+    {
+      "index":  2,
+      "target": "requestheaders",
+      "filters": {
+        "method": [ "PATCH", "POST", "PUT" ],
+        "content_length": [ 0, 5000 ],
+        "content_type": [
+          "application/json",
+          "application/json+protobuf",
+          "application/x-www-form-urlencoded",
+          "multipart/form-data"
+        ]
+      },
+      "agent": {
+        "type": "RequestDetailAgent",
+        "args": [],
+        "kwargs": {}
+      }
+    },
+    {
+      "index":  3,
+      "target": "requestheaders",
+      "filters": {},
+      "agent": {
+        "type":   "DenyAgent",
+        "args":   [],
+        "kwargs": {}
+      }
+    },
+    {
+      "index":  4,
+      "target": "request",
+      "filters": {
+        "method": [ "PATCH", "POST", "PUT" ],
+        "content_length": [ 0, 5000 ],
+        "content_type": [
+          "application/json",
+          "application/json+protobuf",
+          "application/x-www-form-urlencoded",
+          "multipart/form-data"
+        ]
+      },
+      "agent": {
+        "type":   "RequestDetailAgent",
+        "args":   [],
+        "kwargs": {}
+      }
+    },
+    {
+      "index":  5,
+      "target": "responseheaders",
+      "filters": {
+        "content_length": [ 0, 20000 ],
+        "content_type": [
+          "application/json",
+          "application/json+protobuf"
+        ]
+      },
+      "agent": {
+        "type":   "ResponseDetailAgent",
+        "args":   [],
+        "kwargs": {}
+      }
+    },
+    {
+      "index":  6,
+      "target": "responseheaders",
+      "filters": {
+        "status": [ 500, 599 ]
+      },
+      "agent": {
+        "type":   "ResponseDetailAgent",
+        "args":   [],
+        "kwargs": {}
+      }
+    },
+    {
+      "index":  7,
+      "target": "responseheaders",
+      "filters": {
+        "status": [ 400, 499 ]
+      },
+      "agent": {
+        "type":   "ResponseDetailAgent",
+        "args":   [],
+        "kwargs": {}
+      }
+    }
+  ]
+}

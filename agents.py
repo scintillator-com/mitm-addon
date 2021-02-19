@@ -4,7 +4,7 @@ import datetime, logging, re
 import pymongo
 
 from config import Configuration
-from enums  import FlowAttributes, RuleTarget
+from enums  import FlowAttributes, FlowTasks, RuleTarget
 from models import HTTPData, Moment
 
 
@@ -60,6 +60,7 @@ class AgentBase( object ):
             raise TypeError( "Expected type 'mitmproxy.Flow', got None instead" )
 
         RuleTarget.validate( target )
+
 
 
 class MongoAgent( AgentBase ):
@@ -153,7 +154,7 @@ class DenyAgent( AgentBase ):
             flow.attributes.add( FlowAttributes.DENIED )
             self.cancel_response( flow )
             #TODO: cancel the flow
-            
+
         else:
             raise TypeError( "Expected type 'mitmproxy.Flow', got None instead" )
 
@@ -358,9 +359,9 @@ class AuthorizedAgent( MongoAgent ):
 
 
 
-class RequestBaseAgent( AuthorizedAgent ):
+class RecordAgentBase( AuthorizedAgent ):
     @classmethod
-    def moment_recorded( cls, moment: Moment ):
+    def moment_recorded( cls, moment:Moment ):
         if moment.org_id:
             query = {
                 "org_id":  moment.org_id,
@@ -373,7 +374,7 @@ class RequestBaseAgent( AuthorizedAgent ):
                 }
             }
 
-            res = cls.get_mongo( Configuration.MONGO_DB, 'projects' ).update_one( query, update )
+            res = cls.get_mongo_collection( 'projects' ).update_one( query, update )
             if res.modified_count == 0:
                 created = datetime.datetime.now()
                 project = query
@@ -381,33 +382,45 @@ class RequestBaseAgent( AuthorizedAgent ):
                 project["modified"]  = created
                 project["is_locked"] = True
                 project["moments"]   = 1
-                res = cls.get_mongo( Configuration.MONGO_DB, 'projects' ).insert_one( project )
+                res = cls.get_mongo_collection( 'projects' ).insert_one( project )
 
 
     @classmethod
     def record_moment( cls, moment:Moment ):
+        request_dict  = None
+        if moment.request:
+            request_dict = moment.request.to_dict()
+            #logging.info( request_dict )
+
+        response_dict = None
+        if moment.response:
+            response_dict = moment.response.to_dict()
+            #logging.info( response_dict )
+
         if moment._id:
-            as_dict = flow.moment.response.to_dict()
-            #logging.info( as_dict )
-            res = cls.get_mongo( Configuration.MONGO_DB, 'moments' ).update_one(
-                { "_id": flow.moment._id },
+            res = cls.get_mongo_collection( 'moments' ).update_one(
+                { "_id": moment._id },
                 { "$set": {
-                    "response": as_dict,
-                    "timing": flow.timing
+                    "request":  request_dict,
+                    "response": response_dict,
+                    "timing":   moment.timing
                 }}
             )
-        
-        
+
         else:
-            as_dict = moment.to_dict()
-            #logging.info( as_dict )
-            res = cls.get_mongo_collection( 'moments' ).insert_one( as_dict )
+            res = cls.get_mongo_collection( 'moments' ).insert_one({
+                "request":  request_dict,
+                "response": response_dict,
+                "timing":   moment.timing
+            })
+
             moment._id = res.inserted_id
             logging.info({ 'moment._id': moment._id })
+            cls.moment_recorded( moment )
 
 
 
-class RequestDetailAgent( RequestBaseAgent ):
+class RequestDetailAgent( RecordAgentBase ):
     def __init__( self, *args, **kwargs ):
         super( RequestDetailAgent, self ).__init__( *args, **kwargs )
 
@@ -418,28 +431,32 @@ class RequestDetailAgent( RequestBaseAgent ):
         #AuthorizedAgent.process()
         super( RequestDetailAgent, self ).process( flow, target )
 
-        if flow.moment._id:
+        if FlowTasks.SAVE_REQUEST_DETAIL in flow.completed:
             #this has already been recorded
             return
 
 
+        if target < RuleTarget.request:
+            flow.request.stream = False
+            flow.pending.append( FlowTasks.LOAD_REQUEST_DETAIL )
+            flow.pending.append( FlowTasks.SAVE_REQUEST_DETAIL )
+            return
+
+
         if flow.moment.request.is_detail:
+            # perfect
             self.record_moment( flow.moment )
 
         elif flow.moment.request.is_summary:
-            if target == RuleTarget.requestheaders:
-                # wait for next phase
-                flow.request.stream = False
-            else:
-                # take what we have
-                self.record_moment( flow.moment )
+            # take what we have
+            self.record_moment( flow.moment )
 
         else:
             raise NotImplementedError( "RequestDetailAgent.process( '{0}' )".format( target ) )
 
 
 
-class RequestSummaryAgent( RequestBaseAgent ):
+class RequestSummaryAgent( RecordAgentBase ):
     def __init__( self, *args, **kwargs ):
         super( RequestSummaryAgent, self ).__init__( *args, **kwargs )
 
@@ -450,29 +467,23 @@ class RequestSummaryAgent( RequestBaseAgent ):
         #AuthorizedAgent.process()
         super( RequestSummaryAgent, self ).process( flow, target )
 
-        if flow.moment._id:
+        if 'SAVE_REQUEST_SUMMARY' in flow.completed:
             #this has already been recorded
             return
 
 
-        if flow.moment.request.content_length:
-            logging.warning( "{0} has content_length( {1} )".format(
-                flow.moment.request.method.upper(),
-                flow.moment.request.content_length
-            ))
+        if target == RuleTarget.requestheaders:
+            flow.request.stream = True
 
 
         if flow.moment.request.is_detail:
+            # reduce
             flow.moment.request.body = None
             flow.moment.request.is_detail = False
             flow.moment.request.is_summary = True
             self.record_moment( flow.moment )
 
         elif flow.moment.request.is_summary:
-            if target == RuleTarget.requestheaders:
-                # optimize
-                flow.request.stream = True
-
             self.record_moment( flow.moment )
 
         else:
@@ -480,7 +491,7 @@ class RequestSummaryAgent( RequestBaseAgent ):
 
 
 
-class ResponseDetailAgent( AuthorizedAgent ):
+class ResponseDetailAgent( RecordAgentBase ):
     def __init__( self, *args, **kwargs ):
         super( ResponseDetailAgent, self ).__init__( *args, **kwargs )
 
@@ -488,30 +499,35 @@ class ResponseDetailAgent( AuthorizedAgent ):
     def process( self, flow, target:str ):
         self.validate( flow, target )
 
-        if target == RuleTarget.requestheaders \
-            or target == RuleTarget.request:
-            return
-
         #AuthorizedAgent.process()
         super( ResponseDetailAgent, self ).process( flow, target )
 
+        if FlowTasks.SAVE_RESPONSE_DETAIL in flow.completed:
+            #this has already been recorded
+            return
+
+
+        if target < RuleTarget.response:
+            flow.response.stream = False
+            flow.pending.append( FlowTasks.LOAD_RESPONSE_DETAIL )
+            flow.pending.append( FlowTasks.SAVE_RESPONSE_DETAIL )
+            return
+
+
         if flow.moment.response.is_detail:
+            # perfect
             self.record_moment( flow.moment )
 
         elif flow.moment.response.is_summary:
-            if target == RuleTarget.responseheaders:
-                # wait for next phase
-                flow.response.stream = False
-            else:
-                # take what we have
-                self.record_moment( flow.moment )
+            # take what we have
+            self.record_moment( flow.moment )
 
         else:
             raise NotImplementedError( "ResponseDetailAgent.process( '{0}' )".format( target ) )
 
 
 
-class ResponseSummaryAgent( AuthorizedAgent ):
+class ResponseSummaryAgent( RecordAgentBase ):
     def __init__( self, *args, **kwargs ):
         super( ResponseSummaryAgent, self ).__init__( *args, **kwargs )
 
@@ -520,31 +536,32 @@ class ResponseSummaryAgent( AuthorizedAgent ):
     def process( cls, flow, target:str ):
         self.validate( flow, target )
 
-        if target == RuleTarget.requestheaders \
-            or target == RuleTarget.request:
-            return
-
         #AuthorizedAgent.process()
         super( ResponseSummaryAgent, self ).process( flow, target )
 
-        if flow.moment.response.content_length:
-            logging.warning( "Response has content_length( {0} )".format(
-                flow.moment.response.content_length
-            ))
+        if 'SAVE_RESPONSE_SUMMARY' in flow.completed:
+            #this has already been recorded
+            return
+
+
+        if target < RuleTarget.responseheaders:
+            flow.pending.append( 'SAVE_RESPONSE_SUMMARY' )
+            return
+
+
+        if target == RuleTarget.responseheaders:
+            flow.response.stream = False
 
 
         if flow.moment.response.is_detail:
+            # reduce
             flow.moment.response.body = None
             flow.moment.response.is_detail = False
             flow.moment.response.is_summary = True
             self.record_moment( flow.moment )
 
         elif flow.moment.response.is_summary:
-            if target == RuleTarget.responseheaders:
-                # optimize
-                flow.response.stream = True
-
-            self.record_request( flow )
+            self.record_moment( flow.moment )
 
         else:
             raise NotImplementedError( "ResponseSummaryAgent.process( '{0}' )".format( target ) )

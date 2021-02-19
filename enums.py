@@ -17,6 +17,15 @@ class FlowAttributes( object ):
     RESPONSE_SAVED = 'RESPONSE_SAVED'
 
 
+class FlowTasks( object ):
+    LOAD_REQUEST_DETAIL   = 'LOAD_REQUEST_DETAIL'
+    LOAD_REQUEST_SUMMARY  = 'LOAD_REQUEST_SUMMARY'
+    LOAD_RESPONSE_DETAIL  = 'LOAD_RESPONSE_DETAIL'
+    LOAD_RESPONSE_SUMMARY = 'LOAD_RESPONSE_SUMMARY'
+    SAVE_REQUEST_DETAIL   = 'SAVE_REQUEST_DETAIL'
+    SAVE_RESPONSE_DETAIL  = 'SAVE_RESPONSE_DETAIL'
+
+
 class RuleSetBehavior( object ):
     FIRST = 'first'
     LAST  = 'last'
@@ -29,16 +38,11 @@ class RuleSetBehavior( object ):
 
 
 class RuleTarget( object ):
-    #1
-    requestheaders = 'requestheaders'
-    #2
-    request = 'request'
-    #3
-    responseheaders = 'responseheaders'
-    #4
-    response = 'response'
-
-    ALL = ( 'requestheaders', 'request', 'responseheaders', 'response' )
+    requestheaders = 1
+    request = 2
+    responseheaders = 3
+    response = 4
+    ALL = ( 1, 2, 3, 4 )
 
     @classmethod
     def validate( cls, target:str ):

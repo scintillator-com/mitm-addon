@@ -1,0 +1,94 @@
+[2021-02-19 08:24:58,290] root INFO        addons.py:333 7: requestheaders
+'__abstractmethods__' = 'frozenset()'
+'__annotations__' = '{'request': <class 'mitmproxy.net.http.request.Request'>, 'response': typing.Union[mitmproxy.net.http.response.Response, NoneType], 'error': typing.Union[mitmproxy.flow.Error, NoneType], 'server_conn': <class 'mitmproxy.connections.ServerConnection'>, 'client_conn': <class 'mitmproxy.connections.ClientConnection'>, 'intercepted': <class 'bool'>, 'mode': <class 'str'>}'
+'__class__' = '<class 'mitmproxy.http.HTTPFlow'>'
+'__delattr__' = '<method-wrapper '__delattr__' of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__dict__' = '{'type': 'http', 'id': '1e8abdca-2a42-4112-9014-480ea3e14ab4', 'client_conn': <ClientConnection: [TLSv1.3] 192.168.1.48:56222>, 'server_conn': <ServerConnection: api.twilio.com:443>, 'live': <mitmproxy.proxy.protocol.http.HttpLayer object at 0x7f22bd7ba730>, 'error': None, 'intercepted': False, '_backup': None, 'reply': <mitmproxy.controller.Reply object at 0x7f22bd7baaf0>, 'marked': False, 'is_replay': None, 'metadata': {}, 'mode': 'transparent', 'request': Request(UNLOCK /2010-04-01/Accounts/AC2cac7e78735505451426ef8ed90716d0/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&InRegion=CO)}'
+'__dir__' = '<built-in method __dir__ of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__doc__' = '
+    An HTTPFlow is a collection of objects representing a single HTTP
+    transaction.
+    '
+'__eq__' = '<method-wrapper '__eq__' of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__format__' = '<built-in method __format__ of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__ge__' = '<method-wrapper '__ge__' of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__getattribute__' = '<method-wrapper '__getattribute__' of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__gt__' = '<method-wrapper '__gt__' of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__hash__' = '<method-wrapper '__hash__' of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__init__' = '<bound method HTTPFlow.__init__ of <HTTPFlow
+  request = Request(UNLOCK /2010-04-01/Accounts/AC2cac7e78735505451426ef8ed90716d0/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&InRegion=CO)
+  client_conn = <ClientConnection: [TLSv1.3] 192.168.1.48:56222>
+  server_conn = <ServerConnection: api.twilio.com:443>>>'
+'__init_subclass__' = '<built-in method __init_subclass__ of ABCMeta object at 0x26a1000>'
+'__le__' = '<method-wrapper '__le__' of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__lt__' = '<method-wrapper '__lt__' of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__module__' = 'mitmproxy.http'
+'__ne__' = '<method-wrapper '__ne__' of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__new__' = '<built-in method __new__ of type object at 0x9065a0>'
+'__reduce__' = '<built-in method __reduce__ of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__reduce_ex__' = '<built-in method __reduce_ex__ of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__repr__' = '<bound method HTTPFlow.__repr__ of <HTTPFlow
+  request = Request(UNLOCK /2010-04-01/Accounts/AC2cac7e78735505451426ef8ed90716d0/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&InRegion=CO)
+  client_conn = <ClientConnection: [TLSv1.3] 192.168.1.48:56222>
+  server_conn = <ServerConnection: api.twilio.com:443>>>'
+'__setattr__' = '<method-wrapper '__setattr__' of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__sizeof__' = '<built-in method __sizeof__ of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__str__' = '<method-wrapper '__str__' of HTTPFlow object at 0x7f22bd7ba7f0>'
+'__subclasshook__' = '<built-in method __subclasshook__ of ABCMeta object at 0x26a1000>'
+'__weakref__' = 'None'
+'_abc_impl' = '<_abc_data object at 0x7f22c16281b0>'
+'_backup' = 'None'
+'_stateobject_attributes' = '{'id': <class 'str'>, 'error': <class 'mitmproxy.flow.Error'>, 'client_conn': <class 'mitmproxy.connections.ClientConnection'>, 'server_conn': <class 'mitmproxy.connections.ServerConnection'>, 'type': <class 'str'>, 'intercepted': <class 'bool'>, 'is_replay': <class 'str'>, 'marked': <class 'bool'>, 'metadata': typing.Dict[str, typing.Any], 'request': <class 'mitmproxy.net.http.request.Request'>, 'response': <class 'mitmproxy.net.http.response.Response'>, 'mode': <class 'str'>}'
+'backup' = '<bound method Flow.backup of <HTTPFlow
+  request = Request(UNLOCK /2010-04-01/Accounts/AC2cac7e78735505451426ef8ed90716d0/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&InRegion=CO)
+  client_conn = <ClientConnection: [TLSv1.3] 192.168.1.48:56222>
+  server_conn = <ServerConnection: api.twilio.com:443>>>'
+'client_conn' = '<ClientConnection: [TLSv1.3] 192.168.1.48:56222>'
+'copy' = '<bound method HTTPFlow.copy of <HTTPFlow
+  request = Request(UNLOCK /2010-04-01/Accounts/AC2cac7e78735505451426ef8ed90716d0/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&InRegion=CO)
+  client_conn = <ClientConnection: [TLSv1.3] 192.168.1.48:56222>
+  server_conn = <ServerConnection: api.twilio.com:443>>>'
+'error' = 'None'
+'from_state' = '<bound method Flow.from_state of <class 'mitmproxy.http.HTTPFlow'>>'
+'get_state' = '<bound method Flow.get_state of <HTTPFlow
+  request = Request(UNLOCK /2010-04-01/Accounts/AC2cac7e78735505451426ef8ed90716d0/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&InRegion=CO)
+  client_conn = <ClientConnection: [TLSv1.3] 192.168.1.48:56222>
+  server_conn = <ServerConnection: api.twilio.com:443>>>'
+'id' = '1e8abdca-2a42-4112-9014-480ea3e14ab4'
+'intercept' = '<bound method Flow.intercept of <HTTPFlow
+  request = Request(UNLOCK /2010-04-01/Accounts/AC2cac7e78735505451426ef8ed90716d0/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&InRegion=CO)
+  client_conn = <ClientConnection: [TLSv1.3] 192.168.1.48:56222>
+  server_conn = <ServerConnection: api.twilio.com:443>>>'
+'intercepted' = 'False'
+'is_replay' = 'None'
+'kill' = '<bound method Flow.kill of <HTTPFlow
+  request = Request(UNLOCK /2010-04-01/Accounts/AC2cac7e78735505451426ef8ed90716d0/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&InRegion=CO)
+  client_conn = <ClientConnection: [TLSv1.3] 192.168.1.48:56222>
+  server_conn = <ServerConnection: api.twilio.com:443>>>'
+'killable' = 'True'
+'live' = '<mitmproxy.proxy.protocol.http.HttpLayer object at 0x7f22bd7ba730>'
+'marked' = 'False'
+'metadata' = '{}'
+'mode' = 'transparent'
+'modified' = '<bound method Flow.modified of <HTTPFlow
+  request = Request(UNLOCK /2010-04-01/Accounts/AC2cac7e78735505451426ef8ed90716d0/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&InRegion=CO)
+  client_conn = <ClientConnection: [TLSv1.3] 192.168.1.48:56222>
+  server_conn = <ServerConnection: api.twilio.com:443>>>'
+'reply' = '<mitmproxy.controller.Reply object at 0x7f22bd7baaf0>'
+'request' = 'Request(UNLOCK /2010-04-01/Accounts/AC2cac7e78735505451426ef8ed90716d0/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&InRegion=CO)'
+'response' = 'None'
+'resume' = '<bound method Flow.resume of <HTTPFlow
+  request = Request(UNLOCK /2010-04-01/Accounts/AC2cac7e78735505451426ef8ed90716d0/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&InRegion=CO)
+  client_conn = <ClientConnection: [TLSv1.3] 192.168.1.48:56222>
+  server_conn = <ServerConnection: api.twilio.com:443>>>'
+'revert' = '<bound method Flow.revert of <HTTPFlow
+  request = Request(UNLOCK /2010-04-01/Accounts/AC2cac7e78735505451426ef8ed90716d0/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&InRegion=CO)
+  client_conn = <ClientConnection: [TLSv1.3] 192.168.1.48:56222>
+  server_conn = <ServerConnection: api.twilio.com:443>>>'
+'server_conn' = '<ServerConnection: api.twilio.com:443>'
+'set_state' = '<bound method Flow.set_state of <HTTPFlow
+  request = Request(UNLOCK /2010-04-01/Accounts/AC2cac7e78735505451426ef8ed90716d0/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&InRegion=CO)
+  client_conn = <ClientConnection: [TLSv1.3] 192.168.1.48:56222>
+  server_conn = <ServerConnection: api.twilio.com:443>>>'
+'timestamp_start' = '1613748298.2854364'
+'type' = 'http'
