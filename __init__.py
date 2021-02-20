@@ -18,6 +18,7 @@ from agents import AgentBase, \
     AlertAgent,          \
     AuthorizedAgent,     \
     DenyAgent,           \
+    RecordAgentBase,     \
     RequestDetailAgent,  \
     RequestSummaryAgent, \
     ResponseDetailAgent, \

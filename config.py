@@ -17,10 +17,10 @@ class Configuration( object ):
     }
 
     RULES_FILE = '/home/lc/sites/mitm-addon/data/rules.json'
+    SKIP_AUTH  = True
     WEBSITE = 'http://DESKTOP-QCP8I15.localdomain:3000'
 
     '''
-    SKIP_AUTH = False
     SKIP_REQUEST_EXT = (
       '.css',
       '.doc',

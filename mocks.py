@@ -16,7 +16,7 @@ class MitmFlow(object):
 
 class MitmHeaders( list ):
     def __init__( self, *args, **kwargs ):
-        super( MitmHeaders, self ).__init__( *args, **kwargs )
+        super().__init__( *args, **kwargs )
 
     def add( self, key, value ):
         self.append(( key, value ))

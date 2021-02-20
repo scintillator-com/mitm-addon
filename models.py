@@ -100,8 +100,8 @@ class Attachment( object ):
             'k': self.name,
             'v': self.body,
             #'headers': self.headers,
-            'l': self.content_length,
-            't': self.content_type,
+            'cl': self.content_length,
+            'ct': self.content_type,
             'fn': self.filename
         }
 
@@ -182,7 +182,9 @@ class HTTPData( object ):
                     boundary = attributes['boundary']
 
             if 'charset' in attributes and attributes['charset']:
+                #TODO: encoding
                 logging.info( 'Charset: {0}'.format( attributes['charset'] ) )
+                
 
         return content_type, boundary
 
@@ -259,8 +261,6 @@ class HTTPData( object ):
     def load_multidict( source ):
         target = []
         for key, value in source.items( True ):
-            logging.info( key )
-            logging.info( value )
             target.append({
                 'k': str( key ),
                 'v': value,
@@ -298,11 +298,9 @@ class HTTPData( object ):
 
             else:
                 logging.warning( "Multipart/Form-Data doesn't have a boundary" )
-                #TODO: measure multidict
-
-            logging.warning( 'MULTIPART' )
-            logging.warning( source.multipart_form )
-            raise NotImplementedError()
+                # ref: https://www.w3.org/Protocols/rfc1341/7_2_Multipart.html#:~:text=The%20only%20mandatory%20parameter%20for,NOT%20ending%20with%20white%20space.
+                # Boundary can be 1 to 70 chars, penalize
+                return cls.measure_multidict( source.multipart_form, 70 ), False
 
         elif hasattr( source, 'urlencoded_form' ) and source.urlencoded_form:
             #MultiDictView
@@ -335,11 +333,15 @@ class HTTPData( object ):
     '''
     @staticmethod
     def measure_headers( source ):
+        # +2 for colon (:) and newline (\n)
+        return measure_multidict( source.headers, 2 )
+
+
+    @staticmethod
+    def measure_multidict( source, extra_len ):
         length = 0
-        if source.headers:
-            for key, value in source.headers.items( True ):
-                # +2 for colon (:) and newline (\n)
-                length += len( key ) + len( value ) + 2
+        for key, value in source.items( True ):
+            length += len( key ) + len( value ) + extra_len
 
         return length
 
@@ -363,7 +365,7 @@ class HTTPData( object ):
 
 
     @classmethod
-    def parse_multipart( cls, source, boundary ):
+    def parse_multipart( cls, source, body_boundary ):
         if source.text:
             logging.info( "parse_multipart( 'source.text' )" )
             reader = StringIO( source.text )
@@ -540,7 +542,7 @@ class Request( HTTPData ):
 
 
     def measure_body( self, flow ):
-        body_length = HTTPData.measure_body( flow.request, self.body_boundary )
+        body_length, has_files = HTTPData.measure_body( flow.request, self.body_boundary )
         if self.content_length:
             if body_length != self.content_length:
                 logging.warning( 'Content-Length (header): {0}'.format( self.content_length ) )
@@ -778,9 +780,9 @@ class RuleFilters( object ):
                 return False
 
         if self.status:
-            if res.status < self.status[0]:
+            if res.status_code < self.status[0]:
                 return False
-            elif res.status > self.status[1]:
+            elif res.status_code > self.status[1]:
                 return False
 
         return True
@@ -799,9 +801,9 @@ class RuleFilters( object ):
                 return False
 
         if self.status:
-            if res.status < self.status[0]:
+            if res.status_code < self.status[0]:
                 return False
-            elif res.status > self.status[1]:
+            elif res.status_code > self.status[1]:
                 return False
 
         return True
@@ -900,13 +902,12 @@ class Rule( object ):
 
 
     def process( self, flow, target:str ):
-        logging.info( "Processing rule {0}".format( self.index ) )
         for agent in self.agents:
-            logging.info( "Processing agent {0}".format( type( agent ) ) )
-            #try:
-            agent.process( flow, target )
-            #except Exception as ex :
-            #    logging.warn( ex )
+            logging.info( "Processing rule({0}) agent({1})".format( self.index, type( agent ) ) )
+            try:
+                agent.process( flow, target )
+            except Exception as ex :
+                logging.warn( ex )
 
 
     def validate( self ):

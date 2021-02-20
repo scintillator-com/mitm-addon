@@ -13,16 +13,6 @@ class RequestDeniedError( InterruptedError ):
         if headers:
             self.headers = headers
         else:
-            # TODO: agent attributes
             self.headers = {
                 "Content-Type": ContentType.TEXT_PLAIN
             }
-
-'''
-flow.status = FlowAttributes.CANCEL
-flow.response = mitmproxy.http.HTTPResponse.make(
-    status_code,  # (optional) status code
-    content,      # (optional) content
-    headers       # (optional) headers
-)
-'''

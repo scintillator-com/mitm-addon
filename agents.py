@@ -9,12 +9,9 @@ from models import HTTPData, Moment
 
 
 class AgentBase( object ):
-    def __init__( self, *args, **kwargs ):
+    def __init__( self, **kwargs ):
         logging.info( "Creating '{0}'".format( type( self ) ) )
         
-        if args:
-            logging.warning( "Args ignored: {0}".format( args ) )
-
         if kwargs:
             logging.warning( "KW Args ignored: {0}".format( kwargs ) )
 
@@ -22,31 +19,31 @@ class AgentBase( object ):
     @staticmethod
     def create( agent ):
         if agent['type'] == 'AlertAgent':
-            return AlertAgent( *agent['args'], **agent['kwargs'] )
+            return AlertAgent( **agent['kwargs'] )
 
         if agent['type'] == 'AuthorizedAgent':
-            return AuthorizedAgent( *agent['args'], **agent['kwargs'] )
+            return AuthorizedAgent( **agent['kwargs'] )
 
         if agent['type'] == 'DenyAgent':
-            return DenyAgent( *agent['args'], **agent['kwargs'] )
+            return DenyAgent( **agent['kwargs'] )
 
         if agent['type'] == 'IgnoreAgent':
-            return IgnoreAgent( *agent['args'], **agent['kwargs'] )
+            return IgnoreAgent( **agent['kwargs'] )
 
         if agent['type'] == 'LastAgent':
-            return LastAgent( *agent['args'], **agent['kwargs'] )
+            return LastAgent( **agent['kwargs'] )
 
         if agent['type'] == 'RequestDetailAgent':
-            return RequestDetailAgent( *agent['args'], **agent['kwargs'] )
+            return RequestDetailAgent( **agent['kwargs'] )
 
         if agent['type'] == 'RequestSummaryAgent':
-            return RequestSummaryAgent( *agent['args'], **agent['kwargs'] )
+            return RequestSummaryAgent( **agent['kwargs'] )
 
         if agent['type'] == 'ResponseDetailAgent':
-            return ResponseDetailAgent( *agent['args'], **agent['kwargs'] )
+            return ResponseDetailAgent( **agent['kwargs'] )
 
         if agent['type'] == 'ResponseSummaryAgent':
-            return ResponseSummaryAgent( *agent['args'], **agent['kwargs'] )
+            return ResponseSummaryAgent( **agent['kwargs'] )
 
         raise NotImplementedError( agent['type'] )
 
@@ -65,10 +62,6 @@ class AgentBase( object ):
 
 class MongoAgent( AgentBase ):
     MONGO = None
-
-    def __init__( self, *args, **kwargs ):
-        pass
-
 
     @classmethod
     def connect( cls ):
@@ -139,8 +132,8 @@ class AlertAgent( AgentBase ):
 class DenyAgent( AgentBase ):
     __slots__ = ( 'status_code', 'content', 'headers' )
 
-    def __init__( self, status_code=403, content='Blocked', headers={}, *args, **kwargs ):
-        super( DenyAgent, self ).__init__( *args, **kwargs )
+    def __init__( self, status_code=403, content='Blocked', headers={}, **kwargs ):
+        super().__init__( **kwargs )
 
         self.status_code = status_code or 403
         self.content     = content or 'Blocked'
@@ -153,7 +146,6 @@ class DenyAgent( AgentBase ):
         if flow:
             flow.attributes.add( FlowAttributes.DENIED )
             self.cancel_response( flow )
-            #TODO: cancel the flow
 
         else:
             raise TypeError( "Expected type 'mitmproxy.Flow', got None instead" )
@@ -169,27 +161,46 @@ class DenyAgent( AgentBase ):
 
 
 # authorize the capture
-class AuthorizedAgent( MongoAgent ):
+class AuthorizedAgent( MongoAgent, DenyAgent ):
     BASE_64 = re.compile( '^[0-9A-Za-z+/]+$' )
+
+    def __init__( self, permission_error=None, **kwargs ):
+        #TODO: how to call separate super constructors?
+
+        kwargs[ 'content' ] = 'Unauthorized'
+        kwargs[ 'headers' ] = {
+            'Content-Type': 'text/plain'
+        }
+        kwargs[ 'status_code' ] = 401
+        if permission_error:
+            logging.info( permission_error )
+            for key in ( 'content', 'headers', 'status_code' ):
+                if key in permission_error:
+                    kwargs[ key ] = permission_error[ key ]
+
+        super().__init__( **kwargs )
+
 
     def process( self, flow, target:str ):
         self.validate( flow, target )
 
+        if Configuration.SKIP_AUTH:
+            logging.debug( 'SKIP_AUTH' )
+            return
 
         if FlowAttributes.AUTHORIZED in flow.attributes:
             logging.debug( 'flow is already authorized' )
             return
 
-        #TODO: skip auth
 
         try:
             api_key = self.get_api_key( flow )
             logging.debug( api_key )
         except Exception as ex:
             logging.warning( "AuthorizedAgent.get_api_key() failed: {0}".format( ex ) )
-            
-            #TODO: DenyAgent.process()
-            raise PermissionError()
+            self.cancel_response( flow )
+            return
+
 
 
         if api_key:
@@ -206,8 +217,9 @@ class AuthorizedAgent( MongoAgent ):
                 flow.attributes.add( FlowAttributes.AUTHORIZED )
                 return
 
-        #TODO: DenyAgent.process()
-        raise PermissionError()
+
+        self.cancel_response( flow )
+        return
 
 
     @classmethod
@@ -406,6 +418,7 @@ class RecordAgentBase( AuthorizedAgent ):
                     "timing":   moment.timing
                 }}
             )
+            logging.debug( 'Moment updated' )
 
         else:
             res = cls.get_mongo_collection( 'moments' ).insert_one({
@@ -417,19 +430,16 @@ class RecordAgentBase( AuthorizedAgent ):
             moment._id = res.inserted_id
             logging.info({ 'moment._id': moment._id })
             cls.moment_recorded( moment )
+            logging.debug( 'Moment inserted' )
 
 
 
 class RequestDetailAgent( RecordAgentBase ):
-    def __init__( self, *args, **kwargs ):
-        super( RequestDetailAgent, self ).__init__( *args, **kwargs )
-
-
     def process( self, flow, target:str ):
         self.validate( flow, target )
 
         #AuthorizedAgent.process()
-        super( RequestDetailAgent, self ).process( flow, target )
+        super().process( flow, target )
 
         if FlowTasks.SAVE_REQUEST_DETAIL in flow.completed:
             #this has already been recorded
@@ -457,15 +467,11 @@ class RequestDetailAgent( RecordAgentBase ):
 
 
 class RequestSummaryAgent( RecordAgentBase ):
-    def __init__( self, *args, **kwargs ):
-        super( RequestSummaryAgent, self ).__init__( *args, **kwargs )
-
-
     def process( self, flow, target:str ):
         self.validate( flow, target )
 
         #AuthorizedAgent.process()
-        super( RequestSummaryAgent, self ).process( flow, target )
+        super().process( flow, target )
 
         if 'SAVE_REQUEST_SUMMARY' in flow.completed:
             #this has already been recorded
@@ -492,15 +498,11 @@ class RequestSummaryAgent( RecordAgentBase ):
 
 
 class ResponseDetailAgent( RecordAgentBase ):
-    def __init__( self, *args, **kwargs ):
-        super( ResponseDetailAgent, self ).__init__( *args, **kwargs )
-
-
     def process( self, flow, target:str ):
         self.validate( flow, target )
 
         #AuthorizedAgent.process()
-        super( ResponseDetailAgent, self ).process( flow, target )
+        super().process( flow, target )
 
         if FlowTasks.SAVE_RESPONSE_DETAIL in flow.completed:
             #this has already been recorded
@@ -508,7 +510,9 @@ class ResponseDetailAgent( RecordAgentBase ):
 
 
         if target < RuleTarget.response:
-            flow.response.stream = False
+            if flow.response:
+                flow.response.stream = False
+
             flow.pending.append( FlowTasks.LOAD_RESPONSE_DETAIL )
             flow.pending.append( FlowTasks.SAVE_RESPONSE_DETAIL )
             return
@@ -528,16 +532,12 @@ class ResponseDetailAgent( RecordAgentBase ):
 
 
 class ResponseSummaryAgent( RecordAgentBase ):
-    def __init__( self, *args, **kwargs ):
-        super( ResponseSummaryAgent, self ).__init__( *args, **kwargs )
-
-
     @classmethod
     def process( cls, flow, target:str ):
         self.validate( flow, target )
 
         #AuthorizedAgent.process()
-        super( ResponseSummaryAgent, self ).process( flow, target )
+        super().process( flow, target )
 
         if 'SAVE_RESPONSE_SUMMARY' in flow.completed:
             #this has already been recorded

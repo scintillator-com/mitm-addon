@@ -12,6 +12,7 @@ import mitmproxy.proxy.protocol
 #from mitmproxy.net import http
 from mitmproxy.script import concurrent
 
+from agents import RecordAgentBase
 from config import Configuration
 from enums  import FlowAttributes, FlowTasks, RuleTarget
 from models import HTTPData, Moment, Request, Response, Rule, RuleSet
@@ -33,7 +34,7 @@ class AddonBase( object ):
 
 
     @classmethod
-    def configure_logging( cls, level=logging.DEBUG ):
+    def configure_logging( cls, level ):
         __dir__ = os.path.dirname( os.path.realpath( __file__ ) )
         log_name = 'scintillator'
         log_path = os.path.join( __dir__, 'logs', log_name +'.log' )
@@ -59,8 +60,6 @@ class AddonBase( object ):
         default_logger.addHandler( con_handler )
         default_logger.addHandler( file_handler )
         default_logger.setLevel( level )
-
-        #TODO: set hpack.hpack to INFO
 
         hpack_logger = logging.getLogger( 'hpack.hpack' )
         hpack_logger.setLevel( logging.INFO )
@@ -141,6 +140,7 @@ class AddonBase( object ):
     @staticmethod
     def load_request_detail( flow ):
         if flow.request.stream:
+            # data is in flow.client_conn.rfile
             flow.moment.timing['request_parsed'] = None
         else:
             flow.moment.request.load_body( flow.request )
@@ -151,14 +151,17 @@ class AddonBase( object ):
     @staticmethod
     def load_request_summary( flow ):
         flow.moment.request = Request( flow.request )
-        
-        flow.moment.request.port = flow.server_conn.address[1]
-        if flow.moment.request.port == 80:
-            flow.moment.request.scheme = 'http'
-        elif flow.moment.request.port == 443:
-            flow.moment.request.scheme = 'https'
+
+        if flow.server_conn:
+            flow.moment.request.port = flow.server_conn.address[1]
+            if flow.moment.request.port == 80:
+                flow.moment.request.scheme = 'http'
+            elif flow.moment.request.port == 443:
+                flow.moment.request.scheme = 'https'
+            else:
+                logging.warning( "Can't default scheme for port({0})".format( flow.moment.request.port ))
         else:
-            logging.warning( "Can't default scheme for port({0})".format( flow.moment.request.port ))
+            logging.warning( "Empty flow.server_conn".format( flow.moment.request.port ))
 
         total_length = flow.moment.request.measure()
         logging.debug( 'content_length: {0}'.format( flow.moment.request.content_length ) )
@@ -178,6 +181,7 @@ class AddonBase( object ):
     @staticmethod
     def load_response_detail( flow ):
         if flow.response.stream:
+            # data is in flow.server_conn.rfile
             flow.moment.timing['response_parsed'] = None
         else:
             flow.moment.response.load_body( flow.response )
@@ -206,19 +210,18 @@ class AddonBase( object ):
     @staticmethod
     def save_request_detail( flow ):
         RecordAgentBase.record_moment( flow.moment )
-        raise NotImplementedError( 'save_request_detail' )
 
 
     @staticmethod
     def save_response_detail( flow ):
         RecordAgentBase.record_moment( flow.moment )
-        raise NotImplementedError( 'save_response_detail' )
+
 
 
 class ScintillatorAddon( AddonBase ):
     #0
-    def __init__( self ):
-        self.configure_logging()# logging.DEBUG )
+    def __init__( self, level=logging.DEBUG ):
+        self.configure_logging( level )
         logging.info( '''
   /////////////////
  // 0: __init__ //
@@ -296,6 +299,7 @@ class ScintillatorAddon( AddonBase ):
         """
         logging.info( '4: next_layer' )
     '''
+
     '''
     #4 - global
     def update(self, flows: typing.Sequence[mitmproxy.flow.Flow]):
@@ -316,6 +320,7 @@ class ScintillatorAddon( AddonBase ):
         """
         logging.info( '5: clientconnect' )
     '''
+
     '''
     #6
     def http_connect(self, flow: mitmproxy.http.HTTPFlow):
@@ -327,9 +332,6 @@ class ScintillatorAddon( AddonBase ):
             upstream proxy modes.
         """
         logging.info( '6: http_connect' )
-        #TODO: if there are files, return 500
-        #TODO: if request size > 1k
-        #TODO: if response size > 1k
     '''
 
 
@@ -340,28 +342,33 @@ class ScintillatorAddon( AddonBase ):
             is empty.
         """
         logging.info( '7: requestheaders' )
-        abilities = {
-            FlowTasks.LOAD_REQUEST_SUMMARY
-        }
+        
+        try:
+            abilities = {
+                FlowTasks.LOAD_REQUEST_SUMMARY,
+                FlowTasks.SAVE_REQUEST_SUMMARY
+            }
 
-        #request_started??
-        request_received = datetime.datetime.now()
+            #request_started??
+            request_received = datetime.datetime.now()
 
-        # init
-        flow.attributes = set()
-        flow.completed  = []
-        flow.moment     = Moment()
-        flow.moment.timing = { 'request_received': request_received }
-        flow.pending    = [ FlowTasks.LOAD_REQUEST_SUMMARY ]
-        flow.org        = None
-        flow.status     = FlowAttributes.NONE
-        flow.user       = None
+            # init
+            flow.attributes = set()
+            flow.completed  = []
+            flow.moment     = Moment()
+            flow.moment.timing = { 'request_received': request_received }
+            flow.pending    = [ FlowTasks.LOAD_REQUEST_SUMMARY ]
+            flow.org        = None
+            flow.status     = FlowAttributes.NONE
+            flow.user       = None
 
-        #pre - load request summary
-        self.process_tasks( flow, abilities )
-        self.add_xff_headers( flow )
-        self.process_rules( flow, RuleTarget.requestheaders )
-        self.process_tasks( flow, abilities )
+            #pre - load request summary
+            self.process_tasks( flow, abilities )
+            self.add_xff_headers( flow )
+            self.process_rules( flow, RuleTarget.requestheaders )
+            self.process_tasks( flow, abilities )
+        except Exception as ex:
+            logging.exception( ex )
 
 
     #8
@@ -371,29 +378,34 @@ class ScintillatorAddon( AddonBase ):
             The full HTTP request has been read.
         """
         logging.info( '8: request' )
-        abilities = {
-            FlowTasks.LOAD_REQUEST_DETAIL,
-            FlowTasks.SAVE_REQUEST_DETAIL
-        }
 
-        if flow.request.scheme:
-            flow.moment.request.scheme = flow.request.scheme
+        try:
+            abilities = {
+                FlowTasks.LOAD_REQUEST_DETAIL,
+                FlowTasks.SAVE_REQUEST_DETAIL,
+                FlowTasks.SAVE_REQUEST_SUMMARY
+            }
 
-        if flow.request.port:
-            flow.moment.request.port = flow.request.port
+            if flow.request.scheme:
+                flow.moment.request.scheme = flow.request.scheme
 
-        if self.is_flow_denied( flow ):
-            logging.debug( "SKIP: request( flow ) because flow is DENIED" )
-            return
+            if flow.request.port:
+                flow.moment.request.port = flow.request.port
 
-        if self.is_flow_ignored( flow ):
-            logging.debug( "SKIP: request( flow ) because flow is IGNORED" )
-            return
+            if self.is_flow_denied( flow ):
+                logging.debug( "SKIP: request( flow ) because flow is DENIED" )
+                return
+
+            if self.is_flow_ignored( flow ):
+                logging.debug( "SKIP: request( flow ) because flow is IGNORED" )
+                return
 
 
-        self.process_tasks( flow, abilities )
-        self.process_rules( flow, RuleTarget.request )
-        self.process_tasks( flow, abilities )
+            self.process_tasks( flow, abilities )
+            self.process_rules( flow, RuleTarget.request )
+            self.process_tasks( flow, abilities )
+        except Exception as ex:
+            logging.exception( ex )
 
 
     ################ Intermediate Core Event ################
@@ -416,26 +428,33 @@ class ScintillatorAddon( AddonBase ):
             is empty.
         """
         logging.info( '10: responseheaders' )
-        #response_started??
-        response_received = datetime.datetime.now()
-        abilities = {
-            FlowTasks.LOAD_RESPONSE_SUMMARY
-        }
+        
+        try:
+            #response_started??
+            response_received = datetime.datetime.now()
+            abilities = {
+                FlowTasks.LOAD_RESPONSE_SUMMARY,
+                FlowTasks.SAVE_REQUEST_DETAIL,
+                FlowTasks.SAVE_REQUEST_SUMMARY,
+                FlowTasks.SAVE_RESPONSE_SUMMARY
+            }
 
-        if self.is_flow_denied( flow ):
-            logging.debug( "SKIP: responseheaders( flow ) because flow is DENIED" )
-            return
+            if self.is_flow_denied( flow ):
+                logging.debug( "SKIP: responseheaders( flow ) because flow is DENIED" )
+                return
 
-        if self.is_flow_ignored( flow ):
-            logging.debug( "SKIP: responseheaders( flow ) because flow is IGNORED" )
-            return
+            if self.is_flow_ignored( flow ):
+                logging.debug( "SKIP: responseheaders( flow ) because flow is IGNORED" )
+                return
 
 
-        flow.moment.timing[ 'response_received' ] = response_received
-        flow.pending.append( FlowTasks.LOAD_RESPONSE_SUMMARY )
-        self.process_tasks( flow, abilities )
-        self.process_rules( flow, RuleTarget.responseheaders )
-        self.process_tasks( flow, abilities )
+            flow.moment.timing[ 'response_received' ] = response_received
+            flow.pending.append( FlowTasks.LOAD_RESPONSE_SUMMARY )
+            self.process_tasks( flow, abilities )
+            self.process_rules( flow, RuleTarget.responseheaders )
+            self.process_tasks( flow, abilities )
+        except Exception as ex:
+            logging.exception( ex )
 
 
     #11
@@ -445,22 +464,31 @@ class ScintillatorAddon( AddonBase ):
             The full HTTP response has been read.
         """
         logging.info( '11: response' )
-        abilities = {
-            FlowTasks.LOAD_RESPONSE_DETAIL
-        }
-        if self.is_flow_denied( flow ):
-            logging.debug( "SKIP: response( flow ) because flow is DENIED" )
-            return
 
-        if self.is_flow_ignored( flow ):
-            logging.debug( "SKIP: response( flow ) because flow is IGNORED" )
-            return
+        try:
+            abilities = {
+                FlowTasks.LOAD_RESPONSE_DETAIL,
+                FlowTasks.SAVE_REQUEST_DETAIL,
+                FlowTasks.SAVE_REQUEST_SUMMARY,
+                FlowTasks.SAVE_RESPONSE_DETAIL,
+                FlowTasks.SAVE_RESPONSE_SUMMARY
+            }
+
+            if self.is_flow_denied( flow ):
+                logging.debug( "SKIP: response( flow ) because flow is DENIED" )
+                return
+
+            if self.is_flow_ignored( flow ):
+                logging.debug( "SKIP: response( flow ) because flow is IGNORED" )
+                return
 
 
-        flow.pending.append( FlowTasks.LOAD_RESPONSE_DETAIL )
-        self.process_tasks( flow, abilities )
-        self.process_rules( flow, RuleTarget.response )
-        self.process_tasks( flow, abilities )
+            flow.pending.append( FlowTasks.LOAD_RESPONSE_DETAIL )
+            self.process_tasks( flow, abilities )
+            self.process_rules( flow, RuleTarget.response )
+            self.process_tasks( flow, abilities )
+        except Exception as ex:
+            logging.exception( ex )
 
 
     ################ Final Core Event ################
@@ -472,6 +500,7 @@ class ScintillatorAddon( AddonBase ):
         """
         logging.info( '12: clientdisconnect' )
     '''
+
     '''
     #13
     def serverdisconnect(self, conn: mitmproxy.connections.ServerConnection):
