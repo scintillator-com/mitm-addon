@@ -4,7 +4,9 @@
     {
       "index":  1,
       "target": "requestheaders",
-      "filters": {},
+      "filters": {
+        "method": [ "DELETE", "GET", "HEAD", "OPTIONS", "TRACE" ]
+      },
       "agents": [{
         "type": "RequestDetailAgent",
         "kwargs": {
@@ -33,24 +35,6 @@
       },
       "agents": [{
         "type": "RequestDetailAgent",
-        "kwargs": {}
-      }]
-    },
-    {
-      "index":  4,
-      "target": "request",
-      "filters": {
-        "method": [ "PATCH", "POST", "PUT" ],
-        "content_length": [ 0, 5000 ],
-        "content_type": [
-          "application/json",
-          "application/json+protobuf",
-          "application/x-www-form-urlencoded",
-          "multipart/form-data"
-        ]
-      },
-      "agents": [{
-        "type":   "RequestDetailAgent",
         "kwargs": {}
       }]
     },
