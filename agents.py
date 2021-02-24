@@ -164,6 +164,7 @@ class AuthorizedAgent( MongoAgent, DenyAgent ):
             logging.debug( api_key )
         except Exception as ex:
             logging.warning( "AuthorizedAgent.get_api_key() failed: {0}".format( ex ) )
+            flow.attributes.add( FlowAttributes.DENIED )
             self.cancel_response( flow )
             return
 
@@ -184,6 +185,7 @@ class AuthorizedAgent( MongoAgent, DenyAgent ):
                 return
 
 
+        flow.attributes.add( FlowAttributes.DENIED )
         self.cancel_response( flow )
         return
 
