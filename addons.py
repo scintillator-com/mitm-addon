@@ -34,7 +34,7 @@ class AddonBase( object ):
 
 
     @classmethod
-    def configure_logging( cls, level ):
+    def configure_logging( cls ):
         __dir__ = os.path.dirname( os.path.realpath( __file__ ) )
         log_name = 'scintillator'
         log_path = os.path.join( __dir__, 'logs', log_name +'.log' )
@@ -43,11 +43,11 @@ class AddonBase( object ):
 
         con_handler = logging.StreamHandler( sys.stdout )
         con_handler.setFormatter( formatter )
-        con_handler.setLevel( level )
+        con_handler.setLevel( Configuration.LOG_LEVEL )
 
         file_handler = logging.handlers.TimedRotatingFileHandler( log_path, when='midnight', backupCount=7 )
         file_handler.setFormatter( formatter )
-        file_handler.setLevel( level )
+        file_handler.setLevel( Configuration.LOG_LEVEL )
 
         default_logger = logging.getLogger()
         #for handler in default_logger.handlers:
@@ -59,7 +59,7 @@ class AddonBase( object ):
         
         default_logger.addHandler( con_handler )
         default_logger.addHandler( file_handler )
-        default_logger.setLevel( level )
+        default_logger.setLevel( Configuration.LOG_LEVEL )
 
         hpack_logger = logging.getLogger( 'hpack.hpack' )
         hpack_logger.setLevel( logging.INFO )
@@ -73,6 +73,53 @@ class AddonBase( object ):
     @staticmethod
     def is_flow_ignored( flow ):
         return FlowAttributes.IGNORED in flow.attributes
+
+
+    @staticmethod
+    def load_config():
+        Configuration.LOG_LEVEL = os.environ.get( 'LOG_LEVEL', logging.INFO )
+        if Configuration.LOG_LEVEL in ( logging.DEBUG, logging.INFO, logging.WARNING, logging.CRITICAL ):
+            pass
+        elif Configuration.LOG_LEVEL in ( 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL' ):
+            pass
+        else:
+            raise ValueError( "Configuration.LOG_LEVEL expected a valid log level, got {0} instead".format( Configuration.LOG_LEVEL ) )
+        
+        Configuration.MONGO_DB  = os.environ.get( 'MONGO_DB' )
+        if not Configuration.MONGO_DB:
+            raise TypeError( "Configuration.MONGO_DB expected type 'str', got None instead" )
+        
+        Configuration.MONGO_URI = os.environ.get( 'MONGO_URI' )
+        if not Configuration.MONGO_URI:
+            raise TypeError( "Configuration.MONGO_URI expected type 'str', got None instead" )
+
+        Configuration.RATELIMIT = os.environ.get( 'RATELIMIT' )
+        if Configuration.RATELIMIT:
+            try:
+                Configuration.RATELIMIT = bool(int(Configuration.RATELIMIT))
+            except Exception as ex:
+                logging.exception( ex )
+                raise TypeError( "Configuration.RATELIMIT expected type 'int'" )
+        else:
+            raise TypeError( "Configuration.RATELIMIT expected type 'int', got None instead" )
+
+        Configuration.RULES_FILE = os.environ.get( 'RULES_FILE' )
+        if not Configuration.RULES_FILE:
+            raise TypeError( "Configuration.RULES_FILE expected type 'str', got None instead" )
+
+        Configuration.SKIP_AUTH = os.environ.get( 'SKIP_AUTH' )
+        if Configuration.SKIP_AUTH:
+            try:
+                Configuration.SKIP_AUTH = bool(int(Configuration.SKIP_AUTH))
+            except Exception as ex:
+                logging.exception( ex )
+                raise TypeError( "Configuration.SKIP_AUTH expected type 'int'" )
+        else:
+            raise TypeError( "Configuration.SKIP_AUTH expected type 'int', got None instead" )
+
+        Configuration.WEBSITE   = os.environ.get( 'WEBSITE' )
+        if not Configuration.WEBSITE:
+            raise TypeError( "Configuration.WEBSITE expected type 'str', got None instead" )
 
 
     @classmethod
@@ -220,8 +267,9 @@ class AddonBase( object ):
 
 class ScintillatorAddon( AddonBase ):
     #0
-    def __init__( self, level=logging.DEBUG ):
-        self.configure_logging( level )
+    def __init__( self ):
+        self.load_config()
+        self.configure_logging()
         logging.info( '''
   /////////////////
  // 0: __init__ //

@@ -6,7 +6,7 @@ try:
     from addons import ScintillatorAddon
 
     addons = [
-        ScintillatorAddon( logging.INFO )
+        ScintillatorAddon()
     ]
 except Exception as ex:
     logging.exception( ex )

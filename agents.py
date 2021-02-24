@@ -71,7 +71,7 @@ class MongoAgent( AgentBase ):
     @classmethod
     def get_mongo( cls ):
         if not cls.MONGO:
-            cls.MONGO = pymongo.MongoClient( cls.get_mongo_uri() )
+            cls.MONGO = pymongo.MongoClient( Configuration.MONGO_URI )
         return cls.MONGO
 
 
@@ -84,39 +84,6 @@ class MongoAgent( AgentBase ):
     def get_mongo_collection( cls, collection_name ):
         return cls.get_mongo_db()[ collection_name ]
 
-
-    @staticmethod
-    def get_mongo_uri():
-        options = ''
-        if Configuration.MONGO_OPTIONS:
-            options = '?'+ urlencode( Configuration.MONGO_OPTIONS )
-
-        port = ''
-        if Configuration.MONGO_PORT != 27017:
-            port = ':{port}'.format( port=Configuration.MONGO_PORT )
-
-        scheme = 'mongodb'
-        if Configuration.MONGO_SRV:
-            scheme = 'mongodb+srv'
-
-        user_pass = ''
-        if Configuration.MONGO_USER and Configuration.MONGO_PASS:
-            user_pass = '{username}:{password}@'.format(
-                username=urllib.parse.quote_plus( Configuration.MONGO_USER ),
-                password=urllib.parse.quote_plus( Configuration.MONGO_PASS )
-            )
-
-        formatted = "{scheme}://{user_pass}{host}{port}/{dbname}{options}".format(
-            scheme=scheme,
-            user_pass=user_pass,
-            host=Configuration.MONGO_HOST,
-            port=port,
-            dbname=Configuration.MONGO_DB,
-            options=options
-        )
-
-        logging.debug( formatted )
-        return formatted
 
 
 
@@ -173,7 +140,6 @@ class AuthorizedAgent( MongoAgent, DenyAgent ):
         }
         kwargs[ 'status_code' ] = 401
         if permission_error:
-            logging.info( permission_error )
             for key in ( 'content', 'headers', 'status_code' ):
                 if key in permission_error:
                     kwargs[ key ] = permission_error[ key ]
