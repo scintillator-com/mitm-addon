@@ -150,8 +150,8 @@ class AuthorizedAgent( MongoAgent, DenyAgent ):
     def process( self, flow, target:str ):
         self.validate( flow, target )
 
-        if Configuration.SKIP_AUTH:
-            logging.debug( 'SKIP_AUTH' )
+        if not Configuration.AUTHORIZE:
+            logging.debug( 'AUTHORIZE( False )' )
             return
 
         if FlowAttributes.AUTHORIZED in flow.attributes:
@@ -227,21 +227,21 @@ class AuthorizedAgent( MongoAgent, DenyAgent ):
 
     @classmethod
     def check_ratelimit( cls, org_api_key ):
-        # TODO
-        #if Configuration.SKIP_AUTH:
-        #    logging.info( 'SKIP_AUTH' )
-        #    return True
+        if Configuration.RATELIMIT:
+            if cls._check_ratelimit( org_api_key, 'proxy_evergreen' ):
+                logging.debug( 'Used evergreen ratelimit' )
+                return True
 
-        if cls._check_ratelimit( org_api_key, 'proxy_evergreen' ):
-            logging.debug( 'Used evergreen ratelimit' )
-            return True
+            elif cls._check_ratelimit( org_api_key, 'proxy_adhoc' ):
+                logging.debug( 'Used adhoc ratelimit' )
+                return True
 
-        elif cls._check_ratelimit( org_api_key, 'proxy_adhoc' ):
-            logging.debug( 'Used adhoc ratelimit' )
-            return True
+            else:
+                return False
 
         else:
-            return False
+            logging.info( 'RATELIMIT( False )' )
+            return True
 
 
     @classmethod
@@ -275,11 +275,11 @@ class AuthorizedAgent( MongoAgent, DenyAgent ):
                         my_key = value
 
                 else:
-                    logging.debug( "Ignoring '{0}': '{1}'".format( key, value ) )
+                    #logging.debug( "Ignoring '{0}': '{1}'".format( key, value ) )
                     keep_fields.append(( key, value ))
 
             else:
-                logging.debug( "Ignoring '{0}': '{1}'".format( key, value ) )
+                #logging.debug( "Ignoring '{0}': '{1}'".format( key, value ) )
                 keep_fields.append(( key, value ))
 
         # rebuild if something changed
@@ -377,24 +377,24 @@ class RecordAgentBase( AuthorizedAgent ):
             response_dict = moment.response.to_dict()
             #logging.info( response_dict )
 
+        moment_dict = {
+            "org_id":     moment.org_id,
+            "user_id":    moment.user_id,
+            "request":    request_dict,
+            "response":   response_dict,
+            "timing":     moment.timing,
+            'visibility': moment.visibility
+        }
+
         if moment._id:
             res = cls.get_mongo_collection( 'moments' ).update_one(
                 { "_id": moment._id },
-                { "$set": {
-                    "request":  request_dict,
-                    "response": response_dict,
-                    "timing":   moment.timing
-                }}
+                { "$set": moment_dict }
             )
             logging.debug( 'Moment updated' )
 
         else:
-            res = cls.get_mongo_collection( 'moments' ).insert_one({
-                "request":  request_dict,
-                "response": response_dict,
-                "timing":   moment.timing
-            })
-
+            res = cls.get_mongo_collection( 'moments' ).insert_one( moment_dict )
             moment._id = res.inserted_id
             logging.info({ 'moment._id': moment._id })
             cls.moment_recorded( moment )

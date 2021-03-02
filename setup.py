@@ -6,10 +6,10 @@ from os import path
 here = path.abspath( path.dirname( __file__ ) )
 
 setup(
-    name             = "Scintillator addon for mitmproxy",
+    name             = "scintillator",
     description      = "Scintillator addon for mitmproxy",
     long_description = "Scintillator addon for mitmproxy",
-    version          = "0.1.0",
+    version          = "0.2.0",
 
     author       = 'Chris Esquibel',
     author_email = 'c.esquibel@scintillator.com',

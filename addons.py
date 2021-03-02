@@ -107,15 +107,15 @@ class AddonBase( object ):
         if not Configuration.RULES_FILE:
             raise TypeError( "Configuration.RULES_FILE expected type 'str', got None instead" )
 
-        Configuration.SKIP_AUTH = os.environ.get( 'SKIP_AUTH' )
-        if Configuration.SKIP_AUTH:
+        Configuration.AUTHORIZE = os.environ.get( 'AUTHORIZE' )
+        if Configuration.AUTHORIZE:
             try:
-                Configuration.SKIP_AUTH = bool(int(Configuration.SKIP_AUTH))
+                Configuration.AUTHORIZE = bool(int(Configuration.AUTHORIZE))
             except Exception as ex:
                 logging.exception( ex )
-                raise TypeError( "Configuration.SKIP_AUTH expected type 'int'" )
+                raise TypeError( "Configuration.AUTHORIZE expected type 'int'" )
         else:
-            raise TypeError( "Configuration.SKIP_AUTH expected type 'int', got None instead" )
+            raise TypeError( "Configuration.AUTHORIZE expected type 'int', got None instead" )
 
         Configuration.WEBSITE   = os.environ.get( 'WEBSITE' )
         if not Configuration.WEBSITE:
