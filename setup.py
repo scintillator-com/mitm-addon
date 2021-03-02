@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 
-from setuptools import setup, find_packages
-
 from os import path
-here = path.abspath( path.dirname( __file__ ) )
+from setuptools import setup, find_packages
+#here = path.abspath( path.dirname( __file__ ) )
 
 setup(
     name             = "scintillator",
@@ -18,14 +17,13 @@ setup(
     classifiers = [
         'Programming Language :: Python :: 3.7+'
     ],
-
-    package = find_packages(),
-
-    data_files= [],
-
+    packages = find_packages(),
+    data_files = [
+      'data/rules.json'
+    ],
     install_requires = [
         'pymongo == 3.11.2'
     ],
-
+    python_requires = ">=3.7",
     scripts = [],
 )
