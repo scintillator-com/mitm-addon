@@ -500,8 +500,7 @@ class ResponseDetailAgent( RecordAgentBase ):
 
 
 class ResponseSummaryAgent( RecordAgentBase ):
-    @classmethod
-    def process( cls, flow, target:str ):
+    def process( self, flow, target:str ):
         self.validate( flow, target )
 
         #AuthorizedAgent.process()

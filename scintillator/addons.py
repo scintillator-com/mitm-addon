@@ -199,7 +199,7 @@ class AddonBase( object ):
     def load_request_summary( flow ):
         flow.moment.request = Request( flow.request )
 
-        if flow.server_conn:
+        if flow.server_conn and flow.server_conn.address:
             flow.moment.request.port = flow.server_conn.address[1]
             if flow.moment.request.port == 80:
                 flow.moment.request.scheme = 'http'

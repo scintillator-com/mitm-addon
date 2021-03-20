@@ -227,17 +227,35 @@ class HTTPData( object ):
                 self.is_detail = True
                 self.is_summary = False
 
-                try:
-                    self.body = json.loads( self.body )
-                    if self.content_type != ContentType.APPLICATION_JSON:
+                if self.content_type == ContentType.APPLICATION_JSON:
+                    try:
+                        self.body = json.loads( self.body )
+
+                    except json.decoder.JSONDecodeError:
+                        pass
+
+                    except UnicodeDecodeError:
+                        logging.warning( '' )
+
+                    except Exception as ex:
+                        logging.exception( ex )
+
+                else:
+                    '''
+                    try:
+                        self.body = json.loads( self.body )
                         logging.warning( "Old content-type: '{0}'".format( self.content_type ) )
                         self.content_type = ContentType.APPLICATION_JSON
+                    except json.decoder.JSONDecodeError:
+                        pass
 
-                except json.decoder.JSONDecodeError as ex:
+                    except UnicodeDecodeError:
+                        logging.warning( '' )
+
+                    except Exception as ex:
+                        logging.exception( ex )
+                    '''
                     pass
-
-                except Exception as ex:
-                    logging.exception( ex )
 
 
     '''

@@ -13,6 +13,8 @@ setup(
     author       = 'Chris Esquibel',
     author_email = 'c.esquibel@scintillator.com',
 
+    url = 'https://www.scintillator.com/',
+
     # See https://pypi.python.org/pypi?%3Aaction=list_classifiers
     classifiers = [
         'Programming Language :: Python :: 3.7+'
