@@ -8,7 +8,7 @@ setup(
     name             = "scintillator",
     description      = "Scintillator addon for mitmproxy",
     long_description = "Scintillator addon for mitmproxy",
-    version          = "0.2.0",
+    version          = "0.2.1",
 
     author       = 'Chris Esquibel',
     author_email = 'c.esquibel@scintillator.com',
