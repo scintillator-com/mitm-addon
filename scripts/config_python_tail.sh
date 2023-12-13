@@ -17,8 +17,10 @@ function upsert(){
 
   grep -Fq "export ${key}=" "${path}"
   if [ $? -eq 0 ]; then
-    sudo sed -i "s/^export ${key}=.*/export ${key}=${value}/" "${path}"
+	  # update
+    sudo sed -i "s|^export ${key}=.*|export ${key}=${value}|" "${path}"
   else
+	  # append
     echo "export ${key}=${value}" | sudo tee -a "${path}"
   fi
 }

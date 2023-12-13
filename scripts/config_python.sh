@@ -17,17 +17,17 @@ function upsert(){
 
   grep -Fq "export ${key}=" "${path}"
   if [ $? -eq 0 ]; then
-    sudo sed -i "s/^export ${key}=.*/export ${key}=${value}/" "${path}"
+    sed -i "s/^export ${key}=.*/export ${key}=${value}/" "${path}"
   else
-    echo "export ${key}=${value}" | sudo tee -a "${path}"
+    echo "export ${key}=${value}" | tee -a "${path}"
   fi
 }
 
-upsert AUTHORIZE $AUTHORIZE /etc/environment
-upsert LOG_LEVEL $LOG_LEVEL /etc/environment
-upsert MONGO_DB $MONGO_DB /etc/environment
-upsert MONGO_URI $MONGO_URI /etc/environment
-upsert RATELIMIT $RATELIMIT /etc/environment
-upsert RULES_FILE $RULES_FILE /etc/environment
-upsert SKIP_AUTH $SKIP_AUTH /etc/environment
-upsert WEBSITE $WEBSITE /etc/environment
+sudo upsert AUTHORIZE $AUTHORIZE /etc/environment
+sudo upsert LOG_LEVEL $LOG_LEVEL /etc/environment
+sudo upsert MONGO_DB $MONGO_DB /etc/environment
+sudo upsert MONGO_URI $MONGO_URI /etc/environment
+sudo upsert RATELIMIT $RATELIMIT /etc/environment
+sudo upsert RULES_FILE $RULES_FILE /etc/environment
+sudo upsert SKIP_AUTH $SKIP_AUTH /etc/environment
+sudo upsert WEBSITE $WEBSITE /etc/environment

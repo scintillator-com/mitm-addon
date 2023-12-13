@@ -11,8 +11,8 @@ echo "==="
 
 
 if [[ -z "$HostConfiguration" ]]; then
-        echo "This script requires the \$HostConfiguration variable.  \$HostConfiguration must point to a directory of server-specific service XML files."
-        exit 1
+  echo "This script requires the \$HostConfiguration variable.  \$HostConfiguration must point to a directory of server-specific service XML files."
+  exit 1
 fi
 
 
